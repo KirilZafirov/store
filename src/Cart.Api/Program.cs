@@ -56,26 +56,36 @@ app.MapPost("/api/v1/carts", async (CartService service, CancellationToken ct) =
 {
     var created = await service.Create(ct);
     return Results.Created($"/api/v1/carts/{created.Cart.Id}", created);
-}).Produces<CreatedCart>(201).WithTags("Carts");
+}).Produces<CreatedCart>(201).ProducesProblem(429).ProducesProblem(500).WithTags("Carts");
 
 app.MapGet("/api/v1/carts/{cartId:guid}", async (Guid cartId, HttpRequest request, CartService service, CancellationToken ct) =>
-    Results.Ok(await service.Get(cartId, Token(request), ct))).Produces<CartDto>().WithTags("Carts");
+    Results.Ok(await service.Get(RequestValidation.RequiredId(cartId, "cartId"), Token(request), ct)))
+    .Produces<CartDto>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(500).WithTags("Carts");
 
 app.MapPost("/api/v1/carts/{cartId:guid}/items", async (Guid cartId, AddItemRequest body, HttpRequest request, CartService service, CancellationToken ct) =>
-    Results.Ok(await service.Add(cartId, Token(request), new AddItem(body.ProductId, body.Name, body.UnitPrice, body.Currency, body.Quantity), body.Version, IdempotencyKey(request), ct)))
-    .Produces<CartDto>().WithTags("Cart items");
+    {
+        body = RequestValidation.Validate(body);
+        return Results.Ok(await service.Add(RequestValidation.RequiredId(cartId, "cartId"), Token(request),
+            new AddItem(body.ProductId, body.Name, body.UnitPrice, body.Currency, body.Quantity), body.Version,
+            IdempotencyKey(request), ct));
+    }).Produces<CartDto>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(500).WithTags("Cart items");
 
 app.MapPut("/api/v1/carts/{cartId:guid}/items/{productId:guid}", async (Guid cartId, Guid productId, SetQuantityRequest body, HttpRequest request, CartService service, CancellationToken ct) =>
-    Results.Ok(await service.SetQuantity(cartId, Token(request), productId, body.Quantity, body.Version, IdempotencyKey(request), ct)))
-    .Produces<CartDto>().WithTags("Cart items");
+    {
+        body = RequestValidation.Validate(body);
+        return Results.Ok(await service.SetQuantity(RequestValidation.RequiredId(cartId, "cartId"), Token(request),
+            RequestValidation.RequiredId(productId, "productId"), body.Quantity, body.Version, IdempotencyKey(request), ct));
+    }).Produces<CartDto>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(500).WithTags("Cart items");
 
 app.MapDelete("/api/v1/carts/{cartId:guid}/items/{productId:guid}", async (Guid cartId, Guid productId, long version, HttpRequest request, CartService service, CancellationToken ct) =>
-    Results.Ok(await service.Remove(cartId, Token(request), productId, version, IdempotencyKey(request), ct)))
-    .Produces<CartDto>().WithTags("Cart items");
+    Results.Ok(await service.Remove(RequestValidation.RequiredId(cartId, "cartId"), Token(request),
+        RequestValidation.RequiredId(productId, "productId"), NonNegativeVersion(version), IdempotencyKey(request), ct)))
+    .Produces<CartDto>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(500).WithTags("Cart items");
 
 app.MapDelete("/api/v1/carts/{cartId:guid}/items", async (Guid cartId, long version, HttpRequest request, CartService service, CancellationToken ct) =>
-    Results.Ok(await service.Clear(cartId, Token(request), version, IdempotencyKey(request), ct)))
-    .Produces<CartDto>().WithTags("Cart items");
+    Results.Ok(await service.Clear(RequestValidation.RequiredId(cartId, "cartId"), Token(request),
+        NonNegativeVersion(version), IdempotencyKey(request), ct)))
+    .Produces<CartDto>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(500).WithTags("Cart items");
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
@@ -88,14 +98,20 @@ if (app.Configuration.GetValue("ApplyMigrations", false))
 
 app.Run();
 
-static string Token(HttpRequest request) => RequiredHeader(request, "X-Cart-Token");
+static string Token(HttpRequest request) => request.Headers["X-Cart-Token"].FirstOrDefault()
+    ?? throw new CartAccessDeniedException();
 static string IdempotencyKey(HttpRequest request)
 {
     var value = RequiredHeader(request, "Idempotency-Key");
-    if (value.Length > 100) throw new DomainException("invalid_idempotency_key", "Idempotency-Key cannot exceed 100 characters.");
+    if (string.IsNullOrWhiteSpace(value) || value.Length > 100
+        || !value.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.' or ':'))
+        throw new RequestValidationException(new Dictionary<string, string[]>
+        { ["idempotencyKey"] = ["Idempotency-Key must contain 1-100 letters, digits, '.', '_', ':' or '-'."] });
     return value;
 }
 static string RequiredHeader(HttpRequest request, string name) => request.Headers[name].FirstOrDefault()
-    ?? throw new DomainException("missing_header", $"{name} header is required.");
+    ?? throw new RequestValidationException(new Dictionary<string, string[]> { [name] = [$"{name} header is required."] });
+static long NonNegativeVersion(long version) => version >= 0 ? version : throw new RequestValidationException(
+    new Dictionary<string, string[]> { ["version"] = ["Version must be zero or greater."] });
 
 public partial class Program;
