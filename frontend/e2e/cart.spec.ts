@@ -24,7 +24,7 @@ test('creates, adds repeatedly, updates, removes, and clears a cart', async ({ p
   await expect(page.getByText('Nothing here yet.')).toBeVisible()
 
   await page.getByRole('button', { name: /add contour keyboard to cart/i }).click()
-  await expect(page.getByText('Contour keyboard')).toBeVisible()
+  await expect(page.getByLabel(/quantity for contour keyboard/i)).toContainText('1')
   await page.getByRole('button', { name: /clear cart/i }).click()
   await expect(page.getByText('Choose an essential above to begin.')).toBeVisible()
 })
