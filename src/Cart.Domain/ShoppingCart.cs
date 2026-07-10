@@ -4,6 +4,7 @@ namespace Cart.Domain;
 
 public sealed class ShoppingCart
 {
+    public const int MaximumDistinctItems = 100;
     private readonly List<CartItem> _items = [];
     private ShoppingCart() { }
 
@@ -29,7 +30,12 @@ public sealed class ShoppingCart
     {
         EnsureCurrency(unitPrice.Currency);
         var existing = _items.SingleOrDefault(x => x.ProductId == productId);
-        if (existing is null) _items.Add(new CartItem(productId, name, unitPrice, quantity));
+        if (existing is null)
+        {
+            if (_items.Count >= MaximumDistinctItems)
+                throw new DomainException("cart_item_limit", $"A cart cannot contain more than {MaximumDistinctItems} distinct items.");
+            _items.Add(new CartItem(productId, name, unitPrice, quantity));
+        }
         else
         {
             if (existing.UnitPrice != unitPrice)

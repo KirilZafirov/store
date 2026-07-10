@@ -7,7 +7,10 @@ public sealed class CartItem
     internal CartItem(Guid productId, string name, Money unitPrice, int quantity)
     {
         if (productId == Guid.Empty) throw new DomainException("invalid_product", "Product id is required.");
-        if (string.IsNullOrWhiteSpace(name)) throw new DomainException("invalid_name", "Product name is required.");
+        if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > 200)
+            throw new DomainException("invalid_name", "Product name must contain between 1 and 200 characters.");
+        if (unitPrice.Amount > Money.MaximumAmount)
+            throw new DomainException("invalid_price", $"Price cannot exceed {Money.MaximumAmount}.");
         ProductId = productId;
         Name = name.Trim();
         UnitPriceAmount = unitPrice.Amount;

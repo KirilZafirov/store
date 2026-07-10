@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Cart.Application;
 using Cart.Infrastructure;
 using Microsoft.AspNetCore.Hosting;
@@ -141,11 +142,72 @@ public sealed class CartApiTests : IAsyncLifetime
         Assert.Equal(2, (await response.Content.ReadFromJsonAsync<CartDto>())!.Items.Count);
     }
 
+    [Fact]
+    public async Task Invalid_contracts_return_validation_problem_details()
+    {
+        var created = await CreateCart();
+        var uri = $"/api/v1/carts/{created.Cart.Id}/items";
+        object[] invalidRequests =
+        [
+            new { productId = Guid.Empty, name = "Product", unitPrice = 1m, currency = "EUR", quantity = 1, version = 0 },
+            new { productId = Guid.NewGuid(), name = " Product ", unitPrice = 1m, currency = "EUR", quantity = 1, version = 0 },
+            new { productId = Guid.NewGuid(), name = "Product", unitPrice = 1.001m, currency = "EUR", quantity = 1, version = 0 },
+            new { productId = Guid.NewGuid(), name = "Product", unitPrice = 1m, currency = "E1R", quantity = 1, version = 0 },
+            new { productId = Guid.NewGuid(), name = "Product", unitPrice = 1m, currency = "EUR", quantity = 0, version = 0 },
+            new { productId = Guid.NewGuid(), name = "Product", unitPrice = 1m, currency = "EUR", quantity = 1, version = -1 }
+        ];
+
+        foreach (var invalid in invalidRequests)
+        {
+            var response = await Client.SendAsync(Request(HttpMethod.Post, uri, created.AccessToken, Guid.NewGuid().ToString("N"), invalid));
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            await AssertProblem(response, "validation_error", HttpStatusCode.BadRequest, expectErrors: true);
+        }
+
+        var valid = new { productId = Guid.NewGuid(), name = "Product", unitPrice = 1m, currency = "EUR", quantity = 1, version = 0 };
+        var invalidKey = await Client.SendAsync(Request(HttpMethod.Post, uri, created.AccessToken, "invalid key", valid));
+        Assert.Equal(HttpStatusCode.BadRequest, invalidKey.StatusCode);
+        await AssertProblem(invalidKey, "validation_error", HttpStatusCode.BadRequest, expectErrors: true);
+    }
+
+    [Fact]
+    public async Task Missing_invalid_and_cross_cart_tokens_do_not_disclose_cart_existence()
+    {
+        var first = await CreateCart();
+        var second = await CreateCart();
+
+        var missing = await Client.GetAsync($"/api/v1/carts/{first.Cart.Id}");
+        var invalid = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/carts/{first.Cart.Id}");
+        invalid.Headers.Add("X-Cart-Token", "invalid");
+        var crossCart = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/carts/{second.Cart.Id}");
+        crossCart.Headers.Add("X-Cart-Token", first.AccessToken);
+        var nonexistent = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/carts/{Guid.NewGuid()}");
+        nonexistent.Headers.Add("X-Cart-Token", first.AccessToken);
+
+        foreach (var response in new[] { missing, await Client.SendAsync(invalid), await Client.SendAsync(crossCart), await Client.SendAsync(nonexistent) })
+        {
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            await AssertProblem(response, "cart_not_found", HttpStatusCode.NotFound);
+        }
+    }
+
     private async Task<CreatedCart> CreateCart()
     {
         var response = await Client.PostAsync("/api/v1/carts", null);
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<CreatedCart>())!;
+    }
+
+    private static async Task AssertProblem(HttpResponseMessage response, string code, HttpStatusCode status,
+        bool expectErrors = false)
+    {
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = document.RootElement;
+        Assert.Equal((int)status, root.GetProperty("status").GetInt32());
+        Assert.Equal(code, root.GetProperty("code").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(root.GetProperty("type").GetString()));
+        Assert.False(string.IsNullOrWhiteSpace(root.GetProperty("traceId").GetString()));
+        if (expectErrors) Assert.Equal(JsonValueKind.Object, root.GetProperty("errors").ValueKind);
     }
 
     private static HttpRequestMessage Request(HttpMethod method, string uri, string token, string key, object body)

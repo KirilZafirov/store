@@ -55,5 +55,30 @@ public sealed class ShoppingCartTests
         Assert.Null(cart.Currency);
     }
 
+    [Fact]
+    public void Invalid_money_and_product_snapshots_are_rejected()
+    {
+        Assert.Equal("invalid_currency", Assert.Throws<DomainException>(() => new Money(1m, "E1R")).Code);
+        Assert.Equal("invalid_price_scale", Assert.Throws<DomainException>(() => new Money(1.001m, "EUR")).Code);
+
+        var cart = NewCart();
+        Assert.Equal("invalid_name", Assert.Throws<DomainException>(() =>
+            cart.AddItem(Guid.NewGuid(), new string('x', 201), new Money(1m, "EUR"), 1, Now)).Code);
+        Assert.Equal("invalid_price", Assert.Throws<DomainException>(() =>
+            cart.AddItem(Guid.NewGuid(), "Product", new Money(Money.MaximumAmount + 0.01m, "EUR"), 1, Now)).Code);
+    }
+
+    [Fact]
+    public void Distinct_item_limit_is_enforced_by_the_aggregate()
+    {
+        var cart = NewCart();
+        for (var index = 0; index < ShoppingCart.MaximumDistinctItems; index++)
+            cart.AddItem(Guid.NewGuid(), $"Product {index}", new Money(1m, "EUR"), 1, Now);
+
+        var error = Assert.Throws<DomainException>(() =>
+            cart.AddItem(Guid.NewGuid(), "One too many", new Money(1m, "EUR"), 1, Now));
+        Assert.Equal("cart_item_limit", error.Code);
+    }
+
     private static ShoppingCart NewCart() => new(Guid.NewGuid(), "hash", Now);
 }
