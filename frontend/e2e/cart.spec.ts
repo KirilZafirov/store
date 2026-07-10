@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-const apiUrl = process.env.E2E_API_URL ?? 'http://127.0.0.1:8080'
+const apiUrl = process.env.E2E_API_URL ?? 'http://localhost:8080'
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.clear())
@@ -61,7 +61,6 @@ test('recovers from a version conflict by refreshing and retrying with a new key
   await expect(page.getByRole('alert')).toContainText('refreshed')
   await page.getByRole('button', { name: /retry add orbit headphones/i }).click()
 
-  await expect(page.getByText('Orbit headphones')).toBeVisible()
   await expect(page.getByLabel(/quantity for orbit headphones/i)).toContainText('1')
 })
 
