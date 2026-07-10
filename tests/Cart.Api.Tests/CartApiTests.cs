@@ -2,11 +2,14 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Cart.Application;
+using Cart.Domain;
 using Cart.Infrastructure;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -59,9 +62,9 @@ public sealed class CartApiTests : IAsyncLifetime
         var stale = await Client.SendAsync(Request(HttpMethod.Put, $"/api/v1/carts/{created.Cart.Id}/items/{productId}", created.AccessToken, "update-1", new { quantity = 2, version = 0 }));
         Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
 
-        var forbidden = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/carts/{created.Cart.Id}");
-        forbidden.Headers.Add("X-Cart-Token", new string('0', 64));
-        Assert.Equal(HttpStatusCode.Forbidden, (await Client.SendAsync(forbidden)).StatusCode);
+        var hidden = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/carts/{created.Cart.Id}");
+        hidden.Headers.Add("X-Cart-Token", new string('0', 64));
+        Assert.Equal(HttpStatusCode.NotFound, (await Client.SendAsync(hidden)).StatusCode);
     }
 
     [Fact]
@@ -69,6 +72,88 @@ public sealed class CartApiTests : IAsyncLifetime
     {
         Assert.Equal(HttpStatusCode.OK, (await Client.GetAsync("/health/live")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await Client.GetAsync("/health/ready")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Readiness_reports_unavailable_database()
+    {
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:CartDatabase"] = "Host=127.0.0.1;Port=1;Database=missing;Username=missing;Password=missing;Timeout=1;Command Timeout=1",
+                ["ConnectionStrings:Redis"] = "",
+                ["ApplyMigrations"] = "false"
+            }));
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<DbContextOptions<CartDbContext>>();
+                services.AddDbContext<CartDbContext>(options => options.UseNpgsql(
+                    "Host=127.0.0.1;Port=1;Database=missing;Username=missing;Password=missing;Timeout=1;Command Timeout=1"));
+            });
+        });
+
+        using var client = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health/live")).StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/health/ready")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Endpoint_contract_supports_create_get_add_aggregate_update_remove_and_clear()
+    {
+        var created = await CreateCart();
+        var firstProduct = Guid.NewGuid();
+        var secondProduct = Guid.NewGuid();
+
+        var fetched = await AuthorizedGet(created);
+        Assert.Empty(fetched.Items);
+        Assert.Equal(0, fetched.Version);
+        Assert.Null(fetched.Currency);
+
+        var firstAdd = await AddItem(created, firstProduct, "Keyboard", 10m, "EUR", 1, 0, "flow-add-1");
+        Assert.Equal(1, firstAdd.Version);
+        Assert.Equal(10m, firstAdd.Subtotal);
+        Assert.Equal("EUR", firstAdd.Currency);
+
+        var aggregated = await AddItem(created, firstProduct, "Keyboard", 10m, "EUR", 2, 1, "flow-add-2");
+        var aggregatedItem = Assert.Single(aggregated.Items);
+        Assert.Equal(3, aggregatedItem.Quantity);
+        Assert.Equal(30m, aggregatedItem.LineTotal);
+
+        var withSecondItem = await AddItem(created, secondProduct, "Mouse", 5m, "EUR", 1, 2, "flow-add-3");
+        Assert.Equal(2, withSecondItem.Items.Count);
+        Assert.Equal(35m, withSecondItem.Subtotal);
+
+        var updated = await SendCart(Request(HttpMethod.Put,
+            $"/api/v1/carts/{created.Cart.Id}/items/{firstProduct}", created.AccessToken, "flow-update",
+            new { quantity = 4, version = 3 }));
+        Assert.Equal(4, updated.Items.Single(x => x.ProductId == firstProduct).Quantity);
+        Assert.Equal(45m, updated.Subtotal);
+
+        var removed = await SendCart(Request(HttpMethod.Delete,
+            $"/api/v1/carts/{created.Cart.Id}/items/{secondProduct}?version=4", created.AccessToken, "flow-remove", new { }));
+        Assert.Single(removed.Items);
+
+        var cleared = await SendCart(Request(HttpMethod.Delete,
+            $"/api/v1/carts/{created.Cart.Id}/items?version=5", created.AccessToken, "flow-clear", new { }));
+        Assert.Empty(cleared.Items);
+        Assert.Null(cleared.Currency);
+        Assert.Equal(0m, cleared.Subtotal);
+    }
+
+    [Fact]
+    public async Task Incompatible_product_snapshot_is_rejected()
+    {
+        var created = await CreateCart();
+        var productId = Guid.NewGuid();
+
+        await AddItem(created, productId, "Keyboard", 10m, "EUR", 1, 0, "snapshot-add");
+        var changedPrice = await Client.SendAsync(Request(HttpMethod.Post,
+            $"/api/v1/carts/{created.Cart.Id}/items", created.AccessToken, "snapshot-conflict",
+            new { productId, name = "Keyboard", unitPrice = 11m, currency = "EUR", quantity = 1, version = 1 }));
+
+        Assert.Equal(HttpStatusCode.BadRequest, changedPrice.StatusCode);
+        await AssertProblem(changedPrice, "price_changed", HttpStatusCode.BadRequest);
     }
 
     [Fact]
@@ -90,7 +175,7 @@ public sealed class CartApiTests : IAsyncLifetime
         var replay = await Client.SendAsync(Request(HttpMethod.Post, uri, created.AccessToken, "stable-key", add));
         var replayed = await replay.Content.ReadFromJsonAsync<CartDto>();
         Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
-        Assert.Equal(original, replayed);
+        AssertCart(original!, replayed!);
 
         var changedPayload = new { productId, name = "Keyboard", unitPrice = 40m, currency = "EUR", quantity = 2, version = 0 };
         var reused = await Client.SendAsync(Request(HttpMethod.Post, uri, created.AccessToken, "stable-key", changedPayload));
@@ -117,6 +202,35 @@ public sealed class CartApiTests : IAsyncLifetime
         Assert.All(responses, response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
         var carts = await Task.WhenAll(responses.Select(x => x.Content.ReadFromJsonAsync<CartDto>()));
         Assert.All(carts, cart => Assert.Equal(1, Assert.Single(cart!.Items).Quantity));
+    }
+
+    [Fact]
+    public async Task Competing_updates_using_separate_database_contexts_fail_optimistically()
+    {
+        var now = new DateTimeOffset(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
+        var cart = new ShoppingCart(Guid.NewGuid(), "hash", now);
+        var productId = Guid.NewGuid();
+        cart.AddItem(productId, "Keyboard", new Money(10m, "EUR"), 1, now.AddMinutes(1));
+
+        await using (var seedScope = _factory!.Services.CreateAsyncScope())
+        {
+            var seed = seedScope.ServiceProvider.GetRequiredService<CartDbContext>();
+            seed.Carts.Add(cart);
+            await seed.SaveChangesAsync();
+        }
+
+        await using var firstScope = _factory!.Services.CreateAsyncScope();
+        await using var secondScope = _factory!.Services.CreateAsyncScope();
+        var first = firstScope.ServiceProvider.GetRequiredService<CartDbContext>();
+        var second = secondScope.ServiceProvider.GetRequiredService<CartDbContext>();
+        var firstCart = await first.Carts.Include(x => x.Items).SingleAsync(x => x.Id == cart.Id);
+        var secondCart = await second.Carts.Include(x => x.Items).SingleAsync(x => x.Id == cart.Id);
+
+        firstCart.SetQuantity(productId, 2, now.AddMinutes(2));
+        secondCart.SetQuantity(productId, 3, now.AddMinutes(3));
+
+        await first.SaveChangesAsync();
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => second.SaveChangesAsync());
     }
 
     [Fact]
@@ -153,7 +267,10 @@ public sealed class CartApiTests : IAsyncLifetime
             new { productId = Guid.NewGuid(), name = " Product ", unitPrice = 1m, currency = "EUR", quantity = 1, version = 0 },
             new { productId = Guid.NewGuid(), name = "Product", unitPrice = 1.001m, currency = "EUR", quantity = 1, version = 0 },
             new { productId = Guid.NewGuid(), name = "Product", unitPrice = 1m, currency = "E1R", quantity = 1, version = 0 },
+            new { productId = Guid.NewGuid(), name = "Product", unitPrice = -0.01m, currency = "EUR", quantity = 1, version = 0 },
+            new { productId = Guid.NewGuid(), name = new string('x', 201), unitPrice = 1m, currency = "EUR", quantity = 1, version = 0 },
             new { productId = Guid.NewGuid(), name = "Product", unitPrice = 1m, currency = "EUR", quantity = 0, version = 0 },
+            new { productId = Guid.NewGuid(), name = "Product", unitPrice = 1m, currency = "EUR", quantity = 1000, version = 0 },
             new { productId = Guid.NewGuid(), name = "Product", unitPrice = 1m, currency = "EUR", quantity = 1, version = -1 }
         ];
 
@@ -168,6 +285,15 @@ public sealed class CartApiTests : IAsyncLifetime
         var invalidKey = await Client.SendAsync(Request(HttpMethod.Post, uri, created.AccessToken, "invalid key", valid));
         Assert.Equal(HttpStatusCode.BadRequest, invalidKey.StatusCode);
         await AssertProblem(invalidKey, "validation_error", HttpStatusCode.BadRequest, expectErrors: true);
+
+        var missingKey = new HttpRequestMessage(HttpMethod.Post, uri)
+        {
+            Content = JsonContent.Create(valid)
+        };
+        missingKey.Headers.Add("X-Cart-Token", created.AccessToken);
+        var missingKeyResponse = await Client.SendAsync(missingKey);
+        Assert.Equal(HttpStatusCode.BadRequest, missingKeyResponse.StatusCode);
+        await AssertProblem(missingKeyResponse, "validation_error", HttpStatusCode.BadRequest, expectErrors: true);
     }
 
     [Fact]
@@ -191,11 +317,63 @@ public sealed class CartApiTests : IAsyncLifetime
         }
     }
 
+    [Fact]
+    public async Task Cross_cart_token_cannot_mutate_another_cart()
+    {
+        var first = await CreateCart();
+        var second = await CreateCart();
+
+        var response = await Client.SendAsync(Request(HttpMethod.Post, $"/api/v1/carts/{second.Cart.Id}/items",
+            first.AccessToken, "cross-cart-mutation",
+            new { productId = Guid.NewGuid(), name = "Keyboard", unitPrice = 1m, currency = "EUR", quantity = 1, version = 0 }));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await AssertProblem(response, "cart_not_found", HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Domain_cart_size_limit_is_exposed_as_problem_details()
+    {
+        var created = await CreateCart();
+        for (var index = 0; index < ShoppingCart.MaximumDistinctItems; index++)
+        {
+            await AddItem(created, Guid.NewGuid(), $"Product {index}", 1m, "EUR", 1, index, $"limit-{index}");
+        }
+
+        var response = await Client.SendAsync(Request(HttpMethod.Post, $"/api/v1/carts/{created.Cart.Id}/items",
+            created.AccessToken, "limit-overflow",
+            new { productId = Guid.NewGuid(), name = "Overflow", unitPrice = 1m, currency = "EUR", quantity = 1, version = ShoppingCart.MaximumDistinctItems }));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await AssertProblem(response, "cart_item_limit", HttpStatusCode.BadRequest);
+    }
+
     private async Task<CreatedCart> CreateCart()
     {
         var response = await Client.PostAsync("/api/v1/carts", null);
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<CreatedCart>())!;
+    }
+
+    private async Task<CartDto> AuthorizedGet(CreatedCart created)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/carts/{created.Cart.Id}");
+        request.Headers.Add("X-Cart-Token", created.AccessToken);
+        var response = await Client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<CartDto>())!;
+    }
+
+    private async Task<CartDto> AddItem(CreatedCart created, Guid productId, string name, decimal unitPrice,
+        string currency, int quantity, long version, string key) => await SendCart(Request(HttpMethod.Post,
+        $"/api/v1/carts/{created.Cart.Id}/items", created.AccessToken, key,
+        new { productId, name, unitPrice, currency, quantity, version }));
+
+    private async Task<CartDto> SendCart(HttpRequestMessage request)
+    {
+        var response = await Client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<CartDto>())!;
     }
 
     private static async Task AssertProblem(HttpResponseMessage response, string code, HttpStatusCode status,
@@ -208,6 +386,17 @@ public sealed class CartApiTests : IAsyncLifetime
         Assert.False(string.IsNullOrWhiteSpace(root.GetProperty("type").GetString()));
         Assert.False(string.IsNullOrWhiteSpace(root.GetProperty("traceId").GetString()));
         if (expectErrors) Assert.Equal(JsonValueKind.Object, root.GetProperty("errors").ValueKind);
+    }
+
+    private static void AssertCart(CartDto expected, CartDto actual)
+    {
+        Assert.Equal(expected.Id, actual.Id);
+        Assert.Equal(expected.Subtotal, actual.Subtotal);
+        Assert.Equal(expected.Currency, actual.Currency);
+        Assert.Equal(expected.Version, actual.Version);
+        Assert.Equal(expected.CreatedAt, actual.CreatedAt);
+        Assert.Equal(expected.UpdatedAt, actual.UpdatedAt);
+        Assert.Equal(expected.Items.OrderBy(x => x.ProductId).ToArray(), actual.Items.OrderBy(x => x.ProductId).ToArray());
     }
 
     private static HttpRequestMessage Request(HttpMethod method, string uri, string token, string key, object body)
