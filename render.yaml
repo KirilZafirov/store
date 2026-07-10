@@ -12,8 +12,6 @@ services:
     envVars:
       - key: ConnectionStrings__CartDatabase
         sync: false
-      - key: ConnectionStrings__Redis
-        value: ""
       - key: AllowedOrigins
         sync: false
       - key: ApplyMigrations

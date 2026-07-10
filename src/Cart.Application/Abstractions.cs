@@ -17,13 +17,6 @@ public interface IIdempotencyStore
     Task<IdempotencyEntry?> Recover(Guid cartId, string key, CancellationToken cancellationToken);
 }
 
-public interface ICartCache
-{
-    Task<CartDto?> Get(Guid id, CancellationToken cancellationToken);
-    Task Set(CartDto cart, CancellationToken cancellationToken);
-    Task Remove(Guid id, CancellationToken cancellationToken);
-}
-
 public interface ITokenService
 {
     string Create();

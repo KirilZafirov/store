@@ -21,7 +21,7 @@ These instructions apply to production .NET code under `src/`. The solution is a
 - Store only a cryptographic hash of the opaque anonymous cart token and compare it in constant time. Never log tokens, connection strings, or credentials.
 - Return RFC 9457 Problem Details consistently for validation, authorization, missing resources, conflicts, and unexpected errors.
 - Treat client-supplied product names and prices as demo snapshots. Production pricing comes from Pricing and is revalidated during checkout.
-- PostgreSQL remains the source of truth. Redis is cache-aside and optional; Redis failure may reduce performance but must not compromise correctness.
+- PostgreSQL remains the source of truth for the executable cart slice. Do not add Redis back to the cart runtime unless a measured access pattern proves it avoids source-of-truth work without weakening authorization or correctness.
 - Keep liveness process-only and readiness dependency-aware. Preserve structured logs, OpenTelemetry, and Prometheus metrics when adding endpoints.
 
 ## Database and migrations
@@ -53,4 +53,3 @@ The API tests require Docker because they use a real disposable PostgreSQL insta
 - Prefer extending the existing modular service over creating superficial services. Extract a service only when ownership, scaling, deployment, or data-boundary evidence justifies it.
 - When changing public behavior, update tests, OpenAPI, frontend contracts, README examples, and architecture/ADR documentation where applicable.
 - Do not add real payment, tax authority, identity-provider, or marketplace credentials. Model those integrations through ports, adapters, and test doubles.
-
