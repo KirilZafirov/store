@@ -1,0 +1,14 @@
+bin/
+obj/
+.vs/
+.idea/
+.vscode/
+TestResults/
+coverage/
+frontend/node_modules/
+frontend/dist/
+.env
+*.user
+*.suo
+*.tsbuildinfo
+.DS_Store
