@@ -50,4 +50,4 @@ jobs:
           context: "${{ matrix.image == 'api' && '.' || './frontend' }}"
           file: "${{ matrix.image == 'api' && './src/Cart.Api/Dockerfile' || './frontend/Dockerfile' }}"
           push: true
-          tags: ghcr.io/${{ github.repository }}/cart-${{ matrix.image }}:${{ github.sha }}
+          tags: ghcr.io/kirilzafirov/store/cart-${{ matrix.image }}:${{ github.sha }}
