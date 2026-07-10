@@ -74,7 +74,7 @@ export default function App() {
           }
         }
       } else {
-        setPendingMutation(mutation)
+        setPendingMutation(reason instanceof ApiError && reason.status >= 400 && reason.status < 500 ? null : mutation)
         setError(reason instanceof Error ? reason.message : 'Something went wrong.')
       }
     } finally { setBusy(false) }
@@ -121,7 +121,7 @@ export default function App() {
         {products.map((product, index) => <article className={`product ${product.accent}`} key={product.id}>
           <div className="visual"><span className="shape">{['◖', '⌨', '◒'][index]}</span><span className="index">0{index + 1}</span></div>
           <div className="product-copy"><div><h3>{product.name}</h3><p>{product.description}</p></div><strong>{money(product.price, product.currency)}</strong></div>
-          <button disabled={busy || !cart} onClick={() => addProduct(product)}>Add to cart <span>+</span></button>
+          <button aria-label={`Add ${product.name} to cart`} disabled={busy || !cart} onClick={() => addProduct(product)}>Add to cart <span>+</span></button>
         </article>)}
       </div>
     </section>
@@ -130,8 +130,8 @@ export default function App() {
       <div className="section-heading light"><p>02</p><h2 id="cart-title">Your cart</h2></div>
       {busy && !cart ? <p className="cart-state">Preparing your cart…</p> : cart?.items.length === 0 ? <div className="empty"><p>Nothing here yet.</p><span>Choose an essential above to begin.</span></div> : <>
         <div className="lines">{cart?.items.map(item => <div className="line" key={item.productId}>
-          <div><h3>{item.name}</h3><button className="remove" disabled={busy} onClick={() => removeItem(item)}>Remove</button></div>
-          <div className="quantity" aria-label={`Quantity for ${item.name}`}><button aria-label="Decrease quantity" disabled={busy || item.quantity === 1} onClick={() => changeQuantity(item, item.quantity - 1)}>−</button><span>{item.quantity}</span><button aria-label="Increase quantity" disabled={busy} onClick={() => changeQuantity(item, item.quantity + 1)}>+</button></div>
+          <div><h3>{item.name}</h3><button className="remove" aria-label={`Remove ${item.name}`} disabled={busy} onClick={() => removeItem(item)}>Remove</button></div>
+          <div className="quantity" aria-label={`Quantity for ${item.name}`}><button aria-label={`Decrease ${item.name} quantity`} disabled={busy || item.quantity === 1} onClick={() => changeQuantity(item, item.quantity - 1)}>−</button><span>{item.quantity}</span><button aria-label={`Increase ${item.name} quantity`} disabled={busy} onClick={() => changeQuantity(item, item.quantity + 1)}>+</button></div>
           <strong>{money(item.lineTotal, cart.currency ?? 'EUR')}</strong>
         </div>)}</div>
         <div className="summary"><button className="clear" disabled={busy} onClick={clearCart}>Clear cart</button><div><span>Subtotal</span><strong>{money(cart?.subtotal ?? 0, cart?.currency ?? 'EUR')}</strong><small>Taxes and shipping calculated at checkout</small></div></div>

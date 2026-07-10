@@ -108,7 +108,16 @@ npm test
 npm run build
 ```
 
-Full-stack smoke test after `docker compose up --build`: create a cart in the UI, add the same product twice, change quantity, remove it, add another product, clear the cart, then confirm `/health/ready` and `/metrics` respond.
+Browser workflow smoke test against the Docker Compose API:
+
+```bash
+docker compose up -d postgres api
+cd frontend
+npm run e2e:install
+npm run e2e
+```
+
+Manual full-stack smoke test after `docker compose up --build`: create a cart in the UI, add the same product twice, change quantity, remove it, add another product, clear the cart, then confirm `/health/ready` and `/metrics` respond.
 
 ## Design highlights
 
