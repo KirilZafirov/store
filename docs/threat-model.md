@@ -10,7 +10,7 @@
 | Resource exhaustion | Cart/item spam or expensive requests | Front Door/APIM throttling as the primary control; service-side creation and protected-cart limits, quantity/size caps, database timeouts, quotas and autoscaling |
 | Secret or personal-data leakage | Logs, traces, events and CI | Structured allow-listed fields, redaction, Key Vault, managed identities, scanning and retention policy |
 | Cache poisoning / stale reads | Future shared caches or projections | Do not cache raw capability tokens or authorization decisions; define owner, TTL, invalidation and fallback before adding Redis |
-| Dependency compromise | NuGet/npm/container supply chain | Locks, audit gates, Dependabot, SBOM/signing in release pipeline and minimal runtime images |
+| Dependency compromise | NuGet/npm/container supply chain | Locks, audit gates, Dependabot, high/critical container scanning, generated SBOMs, immutable SHA image tags and minimal runtime images |
 | Privileged misuse | Support and operator access | Least privilege, MFA, just-in-time access, immutable audit events and separation of duties |
 
 The anonymous capability model is suitable for a demonstration cart, not a replacement for authenticated ownership. The React demo keeps it in browser storage to make the exercise self-contained; a production web BFF should prefer a `Secure`, `HttpOnly`, `SameSite` cookie and a strict CSP to reduce token theft through XSS. After login, the service must authorize the subject, merge through a versioned command, rotate the capability, and retain an auditable ownership transition.

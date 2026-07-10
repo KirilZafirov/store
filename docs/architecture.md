@@ -128,7 +128,7 @@ Millions of daily users do not alone justify every service or AKS. Measure peak 
 - Front Door/WAF and API Management enforce the primary production throttling and quota layer. Services still keep local defensive rate limits with non-reversible cart/capability partitioning so abuse controls remain safe during edge misconfiguration or internal traffic spikes. Administrative APIs require phishing-resistant MFA and stronger scopes.
 - TLS protects all transit; Azure-managed encryption protects storage; sensitive fields use application-level encryption where threat modelling requires it. Secrets and certificates live in Key Vault and rotate automatically.
 - Payment pages use provider-hosted fields/tokenization to reduce PCI scope. Logs and events exclude credentials, tokens, full payment data and unnecessary personal data.
-- Software supply-chain controls include locked dependencies, vulnerability scanning, signed immutable images, SBOMs, protected environments and auditable deployments.
+- Software supply-chain controls include locked dependencies, vulnerability scanning, SBOMs, immutable SHA-tagged images, protected environments and auditable deployments. Image signing is a future hardening step, not part of the current executable pipeline.
 
 See [Threat model](threat-model.md) for concrete abuse cases and mitigations.
 
@@ -163,7 +163,7 @@ Use trunk-based development: short-lived `feature/*` branches, reviewed pull req
 
 Both teams include product, frontend, backend, QA and operational capability. Shared platform standards cover identity, telemetry, event contracts, CI templates and cloud guardrails; they do not create a shared application database or a central delivery bottleneck.
 
-CI restores locked dependencies, compiles with warnings as errors, runs domain and container-backed integration tests, tests/builds the React client, audits dependencies, and builds immutable images tagged by commit SHA. CD promotes the same image through environments. EF migrations run as a separately observed job before compatible application rollout. Production begins with canary traffic, automated smoke/SLO gates, then progressive promotion; rollback points traffic to the preceding image. Database changes follow expand/migrate/contract so rollback remains possible.
+CI restores locked dependencies, verifies .NET formatting, compiles with warnings as errors, runs domain and container-backed integration tests, tests/builds the React client, audits dependencies, builds and scans containers, emits SBOMs, and publishes immutable images tagged by commit SHA after merge to `main`. CD promotes the same image through environments. EF migrations run as a separately observed job before compatible application rollout. Production begins with canary traffic, automated smoke/SLO gates, then progressive promotion; rollback points traffic to the preceding image. Database changes follow expand/migrate/contract so rollback remains possible.
 
 ## Alternatives and trade-offs
 

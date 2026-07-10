@@ -5,6 +5,7 @@ obj/
 .vscode/
 TestResults/
 coverage/
+nuget-audit.txt
 frontend/node_modules/
 frontend/dist/
 frontend/playwright-report/
