@@ -85,9 +85,11 @@ Prices in this demo are cart snapshots supplied by the client. A production Cart
 
 ## Verification
 
-Backend build and domain tests:
+Backend build, formatting and tests:
 
 ```bash
+dotnet restore RetailPlatform.slnx --locked-mode
+dotnet format RetailPlatform.slnx --verify-no-changes --no-restore
 dotnet build RetailPlatform.slnx
 dotnet test tests/Cart.Domain.Tests
 ```
@@ -104,8 +106,9 @@ Frontend checks:
 cd frontend
 npm ci
 npm run lint
-npm test
+npm test -- --coverage
 npm run build
+npm audit --audit-level=high
 ```
 
 Browser workflow smoke test against the Docker Compose API:
@@ -115,6 +118,13 @@ docker compose up -d postgres api
 cd frontend
 npm run e2e:install
 npm run e2e
+```
+
+CI also builds the API and web containers, scans images for high/critical vulnerabilities, generates SBOM artifacts, and runs:
+
+```bash
+docker compose up --build -d
+bash scripts/ci/compose-smoke.sh
 ```
 
 Manual full-stack smoke test after `docker compose up --build`: create a cart in the UI, add the same product twice, change quantity, remove it, add another product, clear the cart, then confirm `/health/ready` and `/metrics` respond.
@@ -152,6 +162,7 @@ docs/                    Architecture, threat model and ADRs
 - [Architecture vision](docs/architecture.md)
 - [Requirements traceability](docs/requirements-traceability.md)
 - [Threat model](docs/threat-model.md)
+- [Interview discussion guide](docs/interview-guide.md)
 - [ADR 0001 — modular first](docs/adr/0001-modular-first.md)
 - [ADR 0002 — PostgreSQL cart](docs/adr/0002-postgresql-cart.md)
 - [ADR 0003 — events and outbox](docs/adr/0003-events-and-outbox.md)
@@ -159,7 +170,7 @@ docs/                    Architecture, threat model and ADRs
 
 ## Delivery strategy
 
-Use trunk-based development with protected `main`, short-lived `feature/*` branches, conventional commits, mandatory CI and review. Images are tagged with the immutable commit SHA. Promote the same artifact through environments, run compatible migrations separately, use canary traffic plus smoke/SLO gates, and roll back routing to the preceding image when gates fail.
+Use trunk-based development with protected `main`, short-lived `feature/*` branches, conventional commits, mandatory CI and review. Images are tagged with the immutable commit SHA after merge to `main`. Promote the same artifact through environments, run compatible migrations separately, use canary traffic plus smoke/SLO gates, and roll back routing to the preceding image when gates fail.
 
 Suggested reviewable commit sequence for this exercise is: scaffold and domain; persistence/API; tests; React client; observability/infrastructure; architecture and CI. The current workspace may be committed in those logical groups before submission.
 
@@ -179,7 +190,7 @@ The deployed topology is Neon PostgreSQL, Render for the containerized API, and 
 2. Render builds the root `Dockerfile`, runs the API, applies the demonstration migration, and checks `/health/ready`.
 3. Vercel builds `frontend` with `VITE_API_URL` set to the public Render service.
 4. Render allows the exact Vercel production origin through CORS.
-5. The production smoke test creates a cart, adds an item, changes quantity, and verifies the updated subtotal without browser errors.
+5. A production smoke test should create a cart, add an item, change quantity, and verify the updated subtotal without browser errors. The repository also includes local/CI browser and Compose smoke tests.
 
 The API normalizes Neon PostgreSQL URIs for Npgsql and binds to Render's injected `PORT`. For this single-instance demonstration `ApplyMigrations=true` is acceptable; a scaled production deployment must run migrations as a separate release job.
 
@@ -195,4 +206,4 @@ When the API is deployed behind a reverse proxy, configure `ForwardedHeaders__Kn
 
 ## Scope boundaries
 
-No real identity provider, payment processor, tax authority, inventory reservation, or message broker is needed to run this slice. Their contracts, failure handling, security boundaries and delivery sequence are addressed in the architecture document without embedding fake production credentials or unreliable placeholder integrations.
+No real identity provider, payment processor, tax authority, inventory reservation, Service Bus broker, multi-region deployment or production alert rules are needed to run this slice. Their contracts, failure handling, security boundaries and delivery sequence are addressed in the architecture document without embedding fake production credentials or unreliable placeholder integrations.

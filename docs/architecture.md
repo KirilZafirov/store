@@ -1,10 +1,19 @@
 # Global retail platform — architecture vision
 
+## How to read this document
+
+This document separates two things:
+
+- **Implemented vertical slice:** the repository contains a working Cart API, PostgreSQL persistence, React storefront, Docker Compose, health checks, OpenTelemetry/Prometheus metrics, retry-safe idempotent mutations, optimistic concurrency, rate limiting, CI checks, container scanning and public demo deployment.
+- **Target retail platform:** the wider Azure architecture describes how the same bounded-context approach extends to identity, catalog, pricing, inventory, checkout, orders, payments, tax/fiscal adapters, Service Bus events, multi-region recovery and operational alerting.
+
+Unless a capability is explicitly named as part of the implemented vertical slice, treat it as target-state architecture or future hardening. The exercise deliberately avoids fake production integrations for identity providers, payment processors, tax authorities, inventory reservation or message brokers.
+
 ## Executive recommendation
 
 Start with independently owned domain boundaries and deploy the first customer journey as a modular system. Extract a boundary only when its scaling profile, release cadence, reliability isolation, or team ownership warrants the operational cost. The submitted cart is one extraction-ready vertical slice, not a claim that the complete global platform should be one process.
 
-For the first production deployment, use Azure Container Apps, Azure Database for PostgreSQL, Service Bus, Front Door/WAF, API Management, Key Vault, and Application Insights. Add Azure Cache for Redis only for access patterns that benefit from shared low-latency state, such as projections, sessions, distributed rate limiting, or partner throttling. Move selected workloads to AKS only when networking, workload density, sidecars, or platform control justify a Kubernetes team.
+For the target Azure production deployment, use Azure Container Apps, Azure Database for PostgreSQL, Service Bus, Front Door/WAF, API Management, Key Vault, and Application Insights. Add Azure Cache for Redis only for access patterns that benefit from shared low-latency state, such as projections, sessions, distributed rate limiting, or partner throttling. Move selected workloads to AKS only when networking, workload density, sidecars, or platform control justify a Kubernetes team.
 
 ## System context
 
@@ -154,7 +163,7 @@ OpenTelemetry supplies W3C-correlated traces, RED metrics, runtime/database tele
 
 ## Delivery, CI/CD and branching
 
-Use trunk-based development: short-lived `feature/*` branches, reviewed pull requests, protected `main`, mandatory build/test/security checks, conventional commits and signed release tags. Two cross-functional teams own explicit domain boundaries and share platform standards rather than shared databases.
+Use trunk-based development: short-lived `feature/*` branches, reviewed pull requests, protected `main`, mandatory build/test/security checks, conventional commits and release tags. Signing commits, tags or images is a recommended future supply-chain hardening step, but it is not claimed as implemented in this repository. Two cross-functional teams own explicit domain boundaries and share platform standards rather than shared databases.
 
 | Team | Initial ownership | Collaboration boundary |
 |---|---|---|

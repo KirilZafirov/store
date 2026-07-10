@@ -1,5 +1,7 @@
 # Cart threat model
 
+This threat model covers the executable anonymous-cart slice and names production controls that would be required around it. Controls such as Key Vault, managed identities, WAF/APIM and production support access are target-platform controls unless explicitly present in the repository or public demo.
+
 | Threat | Exposure | Mitigation and verification |
 |---|---|---|
 | Stolen anonymous token | Token grants cart access | 256-bit entropy, stored hash only, TLS, no token logs, rotation/merge after login; test invalid token isolation |
