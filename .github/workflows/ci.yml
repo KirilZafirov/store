@@ -86,7 +86,21 @@ jobs:
         working-directory: .
         run: docker compose up -d postgres api
 
+      - name: Wait for browser-test API
+        working-directory: .
+        run: |
+          for i in {1..60}; do
+            if curl --fail --silent --show-error http://127.0.0.1:8080/health/ready; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs --no-color api
+          exit 1
+
       - name: Run browser workflow tests
+        env:
+          E2E_API_URL: http://127.0.0.1:8080
         run: npm run e2e
 
       - name: Upload frontend test artifacts

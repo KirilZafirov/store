@@ -1,7 +1,5 @@
 import { expect, test } from '@playwright/test'
 
-const apiUrl = process.env.E2E_API_URL ?? 'http://localhost:8080'
-
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.clear())
   await page.goto('/')
@@ -26,7 +24,7 @@ test('creates, adds repeatedly, updates, removes, and clears a cart', async ({ p
   await expect(page.getByText('Nothing here yet.')).toBeVisible()
 
   await page.getByRole('button', { name: /add contour keyboard to cart/i }).click()
-  await expect(page.getByText('Contour keyboard')).toBeVisible()
+  await expect(page.getByLabel(/quantity for contour keyboard/i)).toContainText('1')
   await page.getByRole('button', { name: /clear cart/i }).click()
   await expect(page.getByText('Choose an essential above to begin.')).toBeVisible()
 })
@@ -34,7 +32,7 @@ test('creates, adds repeatedly, updates, removes, and clears a cart', async ({ p
 test('recovers from a version conflict by refreshing and retrying with a new key', async ({ page }) => {
   let conflictInjected = false
 
-  await page.route(`${apiUrl}/api/v1/carts/*/items`, async (route) => {
+  await page.route('**/api/v1/carts/*/items', async (route) => {
     const request = route.request()
     if (!conflictInjected && request.method() === 'POST') {
       conflictInjected = true
@@ -65,7 +63,7 @@ test('recovers from a version conflict by refreshing and retrying with a new key
 })
 
 test('shows an unavailable-service state when the API cannot create a cart', async ({ page }) => {
-  await page.route(`${apiUrl}/api/v1/carts`, async (route) => {
+  await page.route('**/api/v1/carts', async (route) => {
     if (route.request().method() === 'POST') {
       await route.abort()
       return
