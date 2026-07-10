@@ -26,6 +26,21 @@ flowchart LR
 
 The edge terminates TLS, absorbs volumetric attacks, caches public assets, applies coarse rate limits, and routes to regional API gateways. BFFs shape channel-specific responses without leaking internal service topology.
 
+## Main technology choices
+
+| Concern | Selected technology | Why it fits | Main trade-off |
+|---|---|---|---|
+| Service runtime | .NET 10, C#, ASP.NET Core | High-throughput async APIs, strong type system, mature diagnostics and long-term Microsoft ecosystem alignment | Higher baseline container size than minimal native runtimes |
+| Web client | React, TypeScript, Vite | Channel-focused UI, fast builds, broad ecosystem and contract-friendly types | Client state and API compatibility require discipline |
+| Transactional data | PostgreSQL with EF Core | ACID cart updates, optimistic concurrency, decimal money and portable relational operations | Single-writer scaling eventually needs partitioning or another store |
+| Hot data | Redis cache-aside | Low-latency reads and graceful degradation because PostgreSQL stays authoritative | Invalidation and stale-data handling add complexity |
+| Async communication | Azure Service Bus with transactional outbox | Absorbs bursts, supports durable real-time propagation and decouples domain releases | Eventual consistency, duplicates and dead-letter operations must be designed explicitly |
+| Edge and API | Azure Front Door, WAF and API Management | Global routing, CDN, abuse protection, quotas and channel governance | Platform cost and Azure coupling |
+| Initial compute | Azure Container Apps | Managed scaling with less operational load than Kubernetes | Less low-level control than AKS |
+| Observability | OpenTelemetry with Azure Monitor/Application Insights | Vendor-neutral instrumentation, correlated traces, metrics and structured logs | Telemetry volume and cardinality require cost controls |
+
+“Real time” means low-latency event propagation where the business can tolerate eventual consistency, not synchronous coupling everywhere. Inventory, price, order and notification changes publish durable events through Service Bus. Decisions that must be authoritative for the current request—cart version checks, price validation at checkout, stock reservation and payment authorization—remain synchronous and strongly consistent within their owning service.
+
 ## Container view and responsibilities
 
 ```mermaid
@@ -141,6 +156,13 @@ OpenTelemetry supplies W3C-correlated traces, RED metrics, runtime/database tele
 ## Delivery, CI/CD and branching
 
 Use trunk-based development: short-lived `feature/*` branches, reviewed pull requests, protected `main`, mandatory build/test/security checks, conventional commits and signed release tags. Two cross-functional teams own explicit domain boundaries and share platform standards rather than shared databases.
+
+| Team | Initial ownership | Collaboration boundary |
+|---|---|---|
+| Customer Experience | Web/mobile BFFs, Catalog, Search, Pricing and Cart | Publishes customer-intent and catalog/price events; consumes inventory availability projections |
+| Transaction & Operations | Checkout, Inventory, Orders, Payments, Fulfilment and external adapters | Owns the purchasing saga and authoritative commercial records |
+
+Both teams include product, frontend, backend, QA and operational capability. Shared platform standards cover identity, telemetry, event contracts, CI templates and cloud guardrails; they do not create a shared application database or a central delivery bottleneck.
 
 CI restores locked dependencies, compiles with warnings as errors, runs domain and container-backed integration tests, tests/builds the React client, audits dependencies, and builds immutable images tagged by commit SHA. CD promotes the same image through environments. EF migrations run as a separately observed job before compatible application rollout. Production begins with canary traffic, automated smoke/SLO gates, then progressive promotion; rollback points traffic to the preceding image. Database changes follow expand/migrate/contract so rollback remains possible.
 

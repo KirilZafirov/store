@@ -130,6 +130,7 @@ docs/                    Architecture, threat model and ADRs
 ## Architecture package
 
 - [Architecture vision](docs/architecture.md)
+- [Requirements traceability](docs/requirements-traceability.md)
 - [Threat model](docs/threat-model.md)
 - [ADR 0001 — modular first](docs/adr/0001-modular-first.md)
 - [ADR 0002 — PostgreSQL cart](docs/adr/0002-postgresql-cart.md)
@@ -144,13 +145,21 @@ Suggested reviewable commit sequence for this exercise is: scaffold and domain; 
 
 ## Public deployment
 
-The reference hosted topology is Neon PostgreSQL, Render for the containerized API, and Vercel for the Vite client:
+The public demonstration is deployed end to end:
 
-1. Create a Neon project and copy its pooled `postgresql://` connection string.
-2. Create a Render Blueprint from this repository's `render.yaml`. Set `ConnectionStrings__CartDatabase` to the Neon string and temporarily set `AllowedOrigins` to the expected Vercel production origin.
-3. Import this repository into Vercel with `frontend` as the Root Directory. Set `VITE_API_URL` to the public Render service URL and deploy.
-4. Set Render's `AllowedOrigins` to the exact Vercel production URL and redeploy the API. Multiple comma-separated origins are supported when preview domains are deliberately allowed.
-5. Verify the UI cart flow plus the Render `/health/live`, `/health/ready`, `/swagger`, and `/metrics` endpoints.
+- **Storefront:** <https://atlas-cart-store.vercel.app>
+- **API / Swagger:** <https://atlas-cart-api-kiril.onrender.com/swagger>
+- **API readiness:** <https://atlas-cart-api-kiril.onrender.com/health/ready>
+- **API metrics:** <https://atlas-cart-api-kiril.onrender.com/metrics>
+- **Database:** Neon PostgreSQL in `aws-eu-central-1` (Frankfurt)
+
+The deployed topology is Neon PostgreSQL, Render for the containerized API, and Vercel for the Vite client:
+
+1. Neon provides the pooled PostgreSQL connection string to Render as a protected environment variable.
+2. Render builds the root `Dockerfile`, runs the API, applies the demonstration migration, and checks `/health/ready`.
+3. Vercel builds `frontend` with `VITE_API_URL` set to the public Render service.
+4. Render allows the exact Vercel production origin through CORS.
+5. The production smoke test creates a cart, adds an item, changes quantity, and verifies the updated subtotal without browser errors.
 
 The API normalizes Neon PostgreSQL URIs for Npgsql, binds to Render's injected `PORT`, and intentionally runs without Redis when `ConnectionStrings__Redis` is empty. For this single-instance demonstration `ApplyMigrations=true` is acceptable; a scaled production deployment must run migrations as a separate release job.
 
