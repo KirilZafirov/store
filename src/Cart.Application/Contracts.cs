@@ -9,3 +9,5 @@ public sealed record AddItem(Guid ProductId, string Name, decimal UnitPrice, str
 public sealed class CartNotFoundException : Exception;
 public sealed class CartAccessDeniedException : Exception;
 public sealed class CartConcurrencyException : Exception;
+public sealed class IdempotencyKeyReusedException : Exception;
+public sealed class IdempotencyRaceException : Exception;

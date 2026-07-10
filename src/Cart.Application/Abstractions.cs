@@ -11,8 +11,10 @@ public interface ICartRepository
 
 public interface IIdempotencyStore
 {
-    Task<bool> Exists(string key, Guid cartId, CancellationToken cancellationToken);
-    Task Record(string key, Guid cartId, CancellationToken cancellationToken);
+    Task PruneExpired(DateTimeOffset now, CancellationToken cancellationToken);
+    Task<IdempotencyEntry?> Find(Guid cartId, string key, CancellationToken cancellationToken);
+    void Stage(IdempotencyEntry entry);
+    Task<IdempotencyEntry?> Recover(Guid cartId, string key, CancellationToken cancellationToken);
 }
 
 public interface ICartCache
@@ -29,3 +31,6 @@ public interface ITokenService
 }
 
 public interface IClock { DateTimeOffset UtcNow { get; } }
+
+public sealed record IdempotencyEntry(Guid CartId, string Key, string Operation, string RequestHash,
+    string ResponseJson, int StatusCode, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt);

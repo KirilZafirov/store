@@ -33,13 +33,10 @@ public sealed class CartDbContext(DbContextOptions<CartDbContext> options) : DbC
         idem.ToTable("idempotency_records");
         idem.HasKey(x => new { x.CartId, x.Key });
         idem.Property(x => x.Key).HasMaxLength(100);
-    }
-
-    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
-    {
-        foreach (var entry in ChangeTracker.Entries<ShoppingCart>().Where(e => e.State == EntityState.Modified))
-            entry.Property(x => x.Version).CurrentValue++;
-        return base.SaveChangesAsync(cancellationToken);
+        idem.Property(x => x.Operation).HasMaxLength(50).IsRequired();
+        idem.Property(x => x.RequestHash).HasMaxLength(64).IsRequired();
+        idem.Property(x => x.ResponseJson).HasColumnType("jsonb").IsRequired();
+        idem.HasIndex(x => x.ExpiresAt);
     }
 }
 
@@ -47,5 +44,10 @@ public sealed class IdempotencyRecord
 {
     public Guid CartId { get; init; }
     public string Key { get; init; } = string.Empty;
-    public DateTimeOffset CreatedAt { get; init; }
+    public string Operation { get; set; } = string.Empty;
+    public string RequestHash { get; set; } = string.Empty;
+    public string ResponseJson { get; set; } = string.Empty;
+    public int StatusCode { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset ExpiresAt { get; set; }
 }

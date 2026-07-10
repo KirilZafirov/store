@@ -1,6 +1,7 @@
 using Cart.Application;
 using Cart.Domain;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Cart.Infrastructure;
 
@@ -13,16 +14,52 @@ public sealed class CartRepository(CartDbContext db) : ICartRepository
     {
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateConcurrencyException) { throw new CartConcurrencyException(); }
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName: "PK_cart_items"
+        })
+        { throw new CartConcurrencyException(); }
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName: "PK_idempotency_records"
+        })
+        { throw new IdempotencyRaceException(); }
     }
 }
 
-public sealed class IdempotencyStore(CartDbContext db, TimeProvider timeProvider) : IIdempotencyStore
+public sealed class IdempotencyStore(CartDbContext db) : IIdempotencyStore
 {
-    public Task<bool> Exists(string key, Guid cartId, CancellationToken ct) =>
-        db.IdempotencyRecords.AnyAsync(x => x.CartId == cartId && x.Key == key, ct);
-    public Task Record(string key, Guid cartId, CancellationToken ct)
+    public Task PruneExpired(DateTimeOffset now, CancellationToken ct) =>
+        db.IdempotencyRecords.Where(x => x.ExpiresAt <= now).ExecuteDeleteAsync(ct);
+
+    public async Task<IdempotencyEntry?> Find(Guid cartId, string key, CancellationToken ct) =>
+        Map(await db.IdempotencyRecords.SingleOrDefaultAsync(x => x.CartId == cartId && x.Key == key, ct));
+
+    public void Stage(IdempotencyEntry entry)
     {
-        db.IdempotencyRecords.Add(new IdempotencyRecord { CartId = cartId, Key = key, CreatedAt = timeProvider.GetUtcNow() });
-        return Task.CompletedTask;
+        db.IdempotencyRecords.Add(new IdempotencyRecord
+        {
+            CartId = entry.CartId,
+            Key = entry.Key,
+            Operation = entry.Operation,
+            RequestHash = entry.RequestHash,
+            ResponseJson = entry.ResponseJson,
+            StatusCode = entry.StatusCode,
+            CreatedAt = entry.CreatedAt,
+            ExpiresAt = entry.ExpiresAt
+        });
     }
+
+    public async Task<IdempotencyEntry?> Recover(Guid cartId, string key, CancellationToken ct)
+    {
+        db.ChangeTracker.Clear();
+        return Map(await db.IdempotencyRecords.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.CartId == cartId && x.Key == key, ct));
+    }
+
+    private static IdempotencyEntry? Map(IdempotencyRecord? record) => record is null ? null :
+        new(record.CartId, record.Key, record.Operation, record.RequestHash, record.ResponseJson,
+            record.StatusCode, record.CreatedAt, record.ExpiresAt);
 }
