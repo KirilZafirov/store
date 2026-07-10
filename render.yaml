@@ -6,7 +6,7 @@ services:
     repo: https://github.com/KirilZafirov/store
     branch: main
     dockerContext: .
-    dockerfilePath: ./src/Cart.Api/Dockerfile
+    dockerfilePath: ./Dockerfile
     healthCheckPath: /health/ready
     autoDeployTrigger: checksPass
     envVars:
