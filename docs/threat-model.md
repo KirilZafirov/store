@@ -9,7 +9,7 @@
 | Injection / malformed input | Public JSON and route values | Typed binding, allow-list validation, EF parameterization, limits and Problem Details |
 | Resource exhaustion | Cart/item spam or expensive requests | Edge and service rate limits, quantity/size caps, timeouts, quotas and autoscaling |
 | Secret or personal-data leakage | Logs, traces, events and CI | Structured allow-listed fields, redaction, Key Vault, managed identities, scanning and retention policy |
-| Cache poisoning / stale reads | Shared Redis | Per-cart keys, authoritative version check, short TTL, cache invalidation, database fallback |
+| Cache poisoning / stale reads | Future shared caches or projections | Do not cache raw capability tokens or authorization decisions; define owner, TTL, invalidation and fallback before adding Redis |
 | Dependency compromise | NuGet/npm/container supply chain | Locks, audit gates, Dependabot, SBOM/signing in release pipeline and minimal runtime images |
 | Privileged misuse | Support and operator access | Least privilege, MFA, just-in-time access, immutable audit events and separation of duties |
 

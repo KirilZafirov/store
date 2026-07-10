@@ -28,7 +28,7 @@ This repository is an interview-ready vertical slice for a global retail platfor
 
 ## Architecture principles
 
-- PostgreSQL is authoritative. Redis is optional cache-aside infrastructure and must never be required for correctness.
+- PostgreSQL is authoritative for the executable cart slice. Redis belongs only in the target architecture when a measured projection, session, distributed-rate-limit, or hot-data pattern justifies it.
 - Use synchronous HTTP for immediate client operations and asynchronous events for cross-domain workflows in the target architecture.
 - Avoid unsafe database/message dual writes; use a transactional outbox and idempotent consumers when event publishing is implemented.
 - Keep cart contents strongly consistent within a cart. Shopping-time inventory views may be eventually consistent; checkout performs authoritative reservation.

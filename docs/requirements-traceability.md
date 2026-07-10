@@ -22,7 +22,7 @@ This matrix maps every requirement in `Tehnički zadatak - senior.docx` to the s
 | Branching strategy | Complete | Trunk-based development, short-lived feature branches, protected `main`, conventional commits and review policy |
 | Minimal cart Web API | Complete | Create/get cart and add/update/remove/clear-item endpoints with OpenAPI and RFC 9457 errors |
 | Database included | Complete | EF Core PostgreSQL model, migration, Docker Compose database, integration tests and deployed Neon database |
-| Selected production requirements implemented | Complete | Optimistic concurrency, durable idempotency, rate limiting, token authorization, Redis degradation, OpenTelemetry and health checks |
+| Selected production requirements implemented | Complete | Optimistic concurrency, durable idempotency, rate limiting, token authorization, PostgreSQL-backed correctness, OpenTelemetry and health checks |
 | Online repository | Complete | <https://github.com/KirilZafirov/store> |
 | Incremental commits | Complete | Separate domain, API/persistence, tests, UI, architecture, deployment and production-fix commits |
 | README with startup instructions | Complete | Root `README.md`: Docker and local startup, migrations, verification, API examples, deployment and troubleshooting |

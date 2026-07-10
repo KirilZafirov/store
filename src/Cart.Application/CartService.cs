@@ -5,8 +5,8 @@ using Cart.Domain;
 
 namespace Cart.Application;
 
-public sealed class CartService(ICartRepository repository, IIdempotencyStore idempotency, ICartCache cache,
-    ITokenService tokens, IClock clock)
+public sealed class CartService(ICartRepository repository, IIdempotencyStore idempotency, ITokenService tokens,
+    IClock clock)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan IdempotencyRetention = TimeSpan.FromHours(24);
@@ -17,19 +17,13 @@ public sealed class CartService(ICartRepository repository, IIdempotencyStore id
         var cart = new ShoppingCart(Guid.NewGuid(), tokens.Hash(rawToken), clock.UtcNow);
         await repository.Add(cart, ct);
         await repository.Save(ct);
-        var dto = Map(cart);
-        await cache.Set(dto, ct);
-        return new(dto, rawToken);
+        return new(Map(cart), rawToken);
     }
 
     public async Task<CartDto> Get(Guid id, string token, CancellationToken ct)
     {
         var cart = await Authorized(id, token, ct);
-        var cached = await cache.Get(id, ct);
-        if (cached is not null && cached.Version == cart.Version) return cached;
-        var dto = Map(cart);
-        await cache.Set(dto, ct);
-        return dto;
+        return Map(cart);
     }
 
     public Task<CartDto> Add(Guid id, string token, AddItem item, long version, string key, CancellationToken ct) =>
@@ -81,7 +75,6 @@ public sealed class CartService(ICartRepository repository, IIdempotencyStore id
             if (winner is not null) return Replay(winner, operation, requestHash);
             throw;
         }
-        await cache.Remove(id, ct);
         return response;
     }
 

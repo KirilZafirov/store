@@ -1,6 +1,6 @@
 # Atlas Retail Cart
 
-An interview-sized vertical slice for a global retail platform: a production-minded ASP.NET Core cart API, PostgreSQL persistence, optional Redis cache, OpenTelemetry instrumentation, and a focused React client.
+An interview-sized vertical slice for a global retail platform: a production-minded ASP.NET Core cart API, PostgreSQL persistence, OpenTelemetry instrumentation, and a focused React client.
 
 The repository deliberately demonstrates **depth over pretend breadth**. The wider event-driven Azure architecture is specified in [docs/architecture.md](docs/architecture.md); the executable code proves the cart boundary end to end.
 
@@ -30,14 +30,13 @@ Pinned toolchains are .NET SDK 10 (see `global.json`) and Node.js 24.
 Start dependencies:
 
 ```bash
-docker compose up -d postgres redis
+docker compose up -d postgres
 ```
 
 Run the API:
 
 ```bash
 export ConnectionStrings__CartDatabase='Host=localhost;Port=55432;Database=cart;Username=cart;Password=cart'
-export ConnectionStrings__Redis='localhost:56379'
 export ApplyMigrations=true
 dotnet run --project src/Cart.Api
 ```
@@ -106,7 +105,7 @@ Full-stack smoke test after `docker compose up --build`: create a cart in the UI
 ## Design highlights
 
 - Domain aggregate enforces quantities, one currency per cart, decimal money, line totals and subtotal.
-- PostgreSQL is authoritative; Redis is cache-aside and failures degrade performance rather than correctness.
+- PostgreSQL is the executable source of truth for cart reads, writes, authorization, concurrency and idempotency.
 - A 256-bit opaque cart token is stored only as a SHA-256 hash and compared in constant time.
 - Expected versions prevent lost updates; conflicts are `409` RFC 9457 Problem Details responses.
 - Idempotency keys are committed in the same database transaction as mutations, making network retries safe.
@@ -122,7 +121,7 @@ Cart creation intentionally does not persist a replay response: that response co
 ```text
 src/Cart.Domain          Aggregate and business invariants
 src/Cart.Application     Use cases, ports and transport-neutral DTOs
-src/Cart.Infrastructure  EF Core/PostgreSQL, Redis and security services
+src/Cart.Infrastructure  EF Core/PostgreSQL and security services
 src/Cart.Api             HTTP contract, telemetry, health and error mapping
 tests/                   Domain and container-backed integration tests
 frontend/                React + TypeScript demonstration client
@@ -138,7 +137,7 @@ docs/                    Architecture, threat model and ADRs
 - [ADR 0001 — modular first](docs/adr/0001-modular-first.md)
 - [ADR 0002 — PostgreSQL cart](docs/adr/0002-postgresql-cart.md)
 - [ADR 0003 — events and outbox](docs/adr/0003-events-and-outbox.md)
-- [ADR 0004 — cache aside](docs/adr/0004-cache-aside.md)
+- [ADR 0004 — executable cart cache removed](docs/adr/0004-cache-aside.md)
 
 ## Delivery strategy
 
@@ -164,14 +163,14 @@ The deployed topology is Neon PostgreSQL, Render for the containerized API, and 
 4. Render allows the exact Vercel production origin through CORS.
 5. The production smoke test creates a cart, adds an item, changes quantity, and verifies the updated subtotal without browser errors.
 
-The API normalizes Neon PostgreSQL URIs for Npgsql, binds to Render's injected `PORT`, and intentionally runs without Redis when `ConnectionStrings__Redis` is empty. For this single-instance demonstration `ApplyMigrations=true` is acceptable; a scaled production deployment must run migrations as a separate release job.
+The API normalizes Neon PostgreSQL URIs for Npgsql and binds to Render's injected `PORT`. For this single-instance demonstration `ApplyMigrations=true` is acceptable; a scaled production deployment must run migrations as a separate release job.
 
 ## Troubleshooting
 
 - **Readiness is unhealthy:** wait for PostgreSQL, inspect `docker compose logs postgres api`, and verify the connection string.
 - **UI reports unavailable:** confirm the API is listening on port 8080 and `AllowedOrigin` matches the browser origin.
 - **A mutation returns 409:** fetch the latest cart and retry the user action with the returned version and a new idempotency key.
-- **Redis is down:** cart requests remain correct and use PostgreSQL; cache-related latency may increase.
+- **Unexpected Redis configuration:** Redis is not used by the executable cart slice; remove stale `ConnectionStrings__Redis` settings if they cause deployment confusion.
 - **Ports are occupied:** override the host side of the port mappings in a Compose override file.
 
 ## Scope boundaries

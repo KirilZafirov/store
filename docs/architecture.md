@@ -4,7 +4,7 @@
 
 Start with independently owned domain boundaries and deploy the first customer journey as a modular system. Extract a boundary only when its scaling profile, release cadence, reliability isolation, or team ownership warrants the operational cost. The submitted cart is one extraction-ready vertical slice, not a claim that the complete global platform should be one process.
 
-For the first production deployment, use Azure Container Apps, Azure Database for PostgreSQL, Azure Cache for Redis, Service Bus, Front Door/WAF, API Management, Key Vault, and Application Insights. Move selected workloads to AKS only when networking, workload density, sidecars, or platform control justify a Kubernetes team.
+For the first production deployment, use Azure Container Apps, Azure Database for PostgreSQL, Service Bus, Front Door/WAF, API Management, Key Vault, and Application Insights. Add Azure Cache for Redis only for access patterns that benefit from shared low-latency state, such as projections, sessions, distributed rate limiting, or partner throttling. Move selected workloads to AKS only when networking, workload density, sidecars, or platform control justify a Kubernetes team.
 
 ## System context
 
@@ -33,7 +33,7 @@ The edge terminates TLS, absorbs volumetric attacks, caches public assets, appli
 | Service runtime | .NET 10, C#, ASP.NET Core | High-throughput async APIs, strong type system, mature diagnostics and long-term Microsoft ecosystem alignment | Higher baseline container size than minimal native runtimes |
 | Web client | React, TypeScript, Vite | Channel-focused UI, fast builds, broad ecosystem and contract-friendly types | Client state and API compatibility require discipline |
 | Transactional data | PostgreSQL with EF Core | ACID cart updates, optimistic concurrency, decimal money and portable relational operations | Single-writer scaling eventually needs partitioning or another store |
-| Hot data | Redis cache-aside | Low-latency reads and graceful degradation because PostgreSQL stays authoritative | Invalidation and stale-data handling add complexity |
+| Hot data | CDN plus targeted Redis projections where justified | Low-latency reads for immutable assets and explicitly designed hot data while PostgreSQL stays authoritative | Shared caches require invalidation, stale-data handling and clear ownership |
 | Async communication | Azure Service Bus with transactional outbox | Absorbs bursts, supports durable real-time propagation and decouples domain releases | Eventual consistency, duplicates and dead-letter operations must be designed explicitly |
 | Edge and API | Azure Front Door, WAF and API Management | Global routing, CDN, abuse protection, quotas and channel governance | Platform cost and Azure coupling |
 | Initial compute | Azure Container Apps | Managed scaling with less operational load than Kubernetes | Less low-level control than AKS |
@@ -64,7 +64,6 @@ flowchart TB
   Fulfilment <--> Bus
   Bus --> Notify[Notifications]
   Cart --> CartDb[(PostgreSQL)]
-  Cart --> Redis[(Redis)]
 ```
 
 | Component | Primary responsibility | Consistency/availability choice |
@@ -72,7 +71,7 @@ flowchart TB
 | Catalog/Search | Product content, taxonomy, localized projections | Eventual read projections; availability preferred |
 | Pricing | Authoritative prices, promotions and currency rules | Strong per calculation; price revalidated at checkout |
 | Inventory | Stock ledger, reservations and releases | Strong per SKU/location reservation |
-| Cart | Intent to purchase and price snapshots | Strong within one cart; Redis failure must not break correctness |
+| Cart | Intent to purchase and price snapshots | Strong within one cart; executable slice uses PostgreSQL directly |
 | Checkout | Coordinates reservation, payment, tax and order saga | Durable workflow; compensating actions |
 | Orders | Immutable commercial record and status lifecycle | Strong writes, append-only audit history |
 | Payment | Provider token exchange, authorization and capture | PCI boundary; no card data stored by retail services |
@@ -84,7 +83,7 @@ Each domain owns its database. Cross-domain database access is forbidden. Immedi
 
 ### Cart write
 
-The client sends the opaque cart capability, expected version, and idempotency key. The Cart service authorizes the capability using a constant-time hash comparison, validates invariants, updates PostgreSQL under optimistic concurrency, records the idempotency key in the same transaction, then invalidates Redis. A stale version returns `409`; a repeated idempotency key returns the already-applied state.
+The client sends the opaque cart capability, expected version, and idempotency key. The Cart service authorizes the capability using a constant-time hash comparison, validates invariants, updates PostgreSQL under optimistic concurrency, and records the idempotency key in the same transaction. A stale version returns `409`; a repeated idempotency key returns the already-applied state.
 
 ### Checkout saga
 
@@ -116,7 +115,7 @@ There is no distributed ACID transaction. The orchestrator persists each transit
 - Cache immutable catalog media at the CDN and hot catalog/pricing projections near compute. Never cache authorization decisions in shared public caches.
 - Scale stateless API replicas on CPU, latency, request rate, and Service Bus depth. Apply load shedding before thread/connection pools saturate.
 - Keep cart writes single-region per cart using deterministic home-region routing. Partition PostgreSQL by tenant/region or hash of cart ID when write volume requires it; use replicas only for safe stale reads.
-- Bound database connections, use short transactions, and index cart/item/idempotency lookup paths. Redis is cache-aside; PostgreSQL remains authoritative.
+- Bound database connections, use short transactions, and index cart/item/idempotency lookup paths. Add Redis only where a measured projection, session, distributed-rate-limit, or hot-data pattern avoids source-of-truth work safely.
 - Isolate partner calls with timeouts, bulkheads and circuit breakers. Queue tax and marketplace work where the legal/user workflow permits it.
 - Use active-active edge routing with regional application stacks. Maintain automated backups and point-in-time restore. Initial targets: RPO <= 5 minutes and RTO <= 30 minutes, validated by recovery exercises.
 
@@ -149,9 +148,9 @@ OpenTelemetry supplies W3C-correlated traces, RED metrics, runtime/database tele
 | Cart mutation latency | p95 < 250 ms in-region; alert on sustained breach |
 | Checkout success | Alert on business success-rate drop, not only HTTP 500s |
 | Queue health | Alert on oldest-message age and dead-letter growth |
-| Dependencies | PostgreSQL saturation, connection wait, Redis errors, partner circuit state |
+| Dependencies | PostgreSQL saturation, connection wait, cache/projection errors where deployed, partner circuit state |
 
-`/health/live` only answers whether the process can serve; orchestrators restart on failure. `/health/ready` includes required dependencies and removes an instance from routing. Redis is deliberately excluded because it is optional for correctness. Runbooks link every page to dashboards, recent deployments, rollback, ownership, and customer impact.
+`/health/live` only answers whether the process can serve; orchestrators restart on failure. `/health/ready` includes required dependencies and removes an instance from routing. Optional caches are excluded from readiness unless a future feature makes them mandatory for serving correct responses. Runbooks link every page to dashboards, recent deployments, rollback, ownership, and customer impact.
 
 ## Delivery, CI/CD and branching
 
@@ -175,7 +174,7 @@ CI restores locked dependencies, compiles with warnings as errors, runs domain a
 
 ## Phased roadmap
 
-1. **Cart vertical slice:** establish domain conventions, delivery pipeline, telemetry, PostgreSQL, Redis degradation and the demo UI.
+1. **Cart vertical slice:** establish domain conventions, delivery pipeline, telemetry, PostgreSQL and the demo UI.
 2. **Purchasing path:** integrate authoritative pricing, inventory reservation, checkout saga, provider-tokenized payment and Orders.
 3. **Channels and integrations:** introduce BFFs, marketplace/B2B adapters, country-specific tax adapters, notification projections and operational replay tools.
 4. **Global hardening:** measured partitioning, regional placement, capacity/load tests, chaos and recovery exercises, canary automation, SLO governance and cost controls.

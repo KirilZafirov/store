@@ -28,7 +28,6 @@ public sealed class CartApiTests : IAsyncLifetime
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:CartDatabase"] = _postgres.GetConnectionString(),
-                ["ConnectionStrings:Redis"] = "",
                 ["ApplyMigrations"] = "true"
             })));
     }
@@ -82,7 +81,6 @@ public sealed class CartApiTests : IAsyncLifetime
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:CartDatabase"] = "Host=127.0.0.1;Port=1;Database=missing;Username=missing;Password=missing;Timeout=1;Command Timeout=1",
-                ["ConnectionStrings:Redis"] = "",
                 ["ApplyMigrations"] = "false"
             }));
             builder.ConfigureServices(services =>
