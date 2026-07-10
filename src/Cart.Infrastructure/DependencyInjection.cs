@@ -10,11 +10,14 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        var databaseConnection = NormalizePostgresConnectionString(
-            configuration.GetConnectionString("CartDatabase")
-            ?? throw new InvalidOperationException("ConnectionStrings:CartDatabase is required."));
-        services.AddDbContext<CartDbContext>(o =>
-            o.UseNpgsql(databaseConnection, npgsql => npgsql.EnableRetryOnFailure()));
+        services.AddDbContext<CartDbContext>((provider, options) =>
+        {
+            var runtimeConfiguration = provider.GetRequiredService<IConfiguration>();
+            var databaseConnection = NormalizePostgresConnectionString(
+                runtimeConfiguration.GetConnectionString("CartDatabase")
+                ?? throw new InvalidOperationException("ConnectionStrings:CartDatabase is required."));
+            options.UseNpgsql(databaseConnection, npgsql => npgsql.EnableRetryOnFailure());
+        });
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<ICartRepository, CartRepository>();
         services.AddScoped<IIdempotencyStore, IdempotencyStore>();
@@ -31,7 +34,7 @@ public static class DependencyInjection
         return services;
     }
 
-    private static string NormalizePostgresConnectionString(string value)
+    public static string NormalizePostgresConnectionString(string value)
     {
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
             || (uri.Scheme != "postgres" && uri.Scheme != "postgresql")) return value;
@@ -41,6 +44,7 @@ public static class DependencyInjection
         var password = userInfo.Length == 2 ? Uri.UnescapeDataString(userInfo[1]) : string.Empty;
         var database = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/'));
 
-        return $"Host={uri.Host};Port={uri.Port};Database={database};Username={username};Password={password};SSL Mode=Require";
+        var port = uri.Port > 0 ? uri.Port : 5432;
+        return $"Host={uri.Host};Port={port};Database={database};Username={username};Password={password};SSL Mode=Require";
     }
 }
