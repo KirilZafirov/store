@@ -4,6 +4,15 @@ An interview-sized vertical slice for a global retail platform: a production-min
 
 The repository deliberately demonstrates **depth over pretend breadth**. The wider event-driven Azure architecture is specified in [docs/architecture.md](docs/architecture.md); the executable code proves the cart boundary end to end.
 
+## Live demo
+
+- **Storefront:** <https://atlas-cart-store.vercel.app>
+- **API / Swagger:** <https://atlas-cart-api-kiril.onrender.com/swagger>
+- **OpenAPI JSON:** <https://atlas-cart-api-kiril.onrender.com/openapi/v1.json>
+- **API readiness:** <https://atlas-cart-api-kiril.onrender.com/health/ready>
+- **API metrics:** <https://atlas-cart-api-kiril.onrender.com/metrics>
+- **Database:** Neon PostgreSQL in `aws-eu-central-1` (Frankfurt)
+
 ## Quick start with Docker
 
 Prerequisites: Docker Desktop with Compose v2. No host .NET or Node installation is required.
