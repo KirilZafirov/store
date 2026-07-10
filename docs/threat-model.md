@@ -7,7 +7,7 @@
 | Replay / duplicate write | Networks and clients retry | Required idempotency key stored atomically with mutation; test same key twice |
 | Lost update | Two tabs change one cart | Expected cart version and database concurrency token; return 409 and refresh |
 | Injection / malformed input | Public JSON and route values | Typed binding, allow-list validation, EF parameterization, limits and Problem Details |
-| Resource exhaustion | Cart/item spam or expensive requests | Edge and service rate limits, quantity/size caps, timeouts, quotas and autoscaling |
+| Resource exhaustion | Cart/item spam or expensive requests | Front Door/APIM throttling as the primary control; service-side creation and protected-cart limits, quantity/size caps, database timeouts, quotas and autoscaling |
 | Secret or personal-data leakage | Logs, traces, events and CI | Structured allow-listed fields, redaction, Key Vault, managed identities, scanning and retention policy |
 | Cache poisoning / stale reads | Future shared caches or projections | Do not cache raw capability tokens or authorization decisions; define owner, TTL, invalidation and fallback before adding Redis |
 | Dependency compromise | NuGet/npm/container supply chain | Locks, audit gates, Dependabot, SBOM/signing in release pipeline and minimal runtime images |

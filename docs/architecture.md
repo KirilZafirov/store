@@ -115,7 +115,7 @@ There is no distributed ACID transaction. The orchestrator persists each transit
 - Cache immutable catalog media at the CDN and hot catalog/pricing projections near compute. Never cache authorization decisions in shared public caches.
 - Scale stateless API replicas on CPU, latency, request rate, and Service Bus depth. Apply load shedding before thread/connection pools saturate.
 - Keep cart writes single-region per cart using deterministic home-region routing. Partition PostgreSQL by tenant/region or hash of cart ID when write volume requires it; use replicas only for safe stale reads.
-- Bound database connections, use short transactions, and index cart/item/idempotency lookup paths. Add Redis only where a measured projection, session, distributed-rate-limit, or hot-data pattern avoids source-of-truth work safely.
+- Bound database connections and command timeouts, use short transactions, and index cart/item/idempotency lookup paths. Add Redis only where a measured projection, session, distributed-rate-limit, or hot-data pattern avoids source-of-truth work safely.
 - Isolate partner calls with timeouts, bulkheads and circuit breakers. Queue tax and marketplace work where the legal/user workflow permits it.
 - Use active-active edge routing with regional application stacks. Maintain automated backups and point-in-time restore. Initial targets: RPO <= 5 minutes and RTO <= 30 minutes, validated by recovery exercises.
 
@@ -125,7 +125,7 @@ Millions of daily users do not alone justify every service or AKS. Measure peak 
 
 - Customers authenticate through OpenID Connect/OAuth 2.1 with Authorization Code + PKCE; services validate short-lived audience-scoped JWTs. Workloads use managed identities and least-privilege RBAC.
 - Anonymous carts use 256-bit opaque capability tokens. Only SHA-256 hashes are stored. Tokens stay in secure client storage, are never logged, rotate on ownership changes, and are exchanged/merged after sign-in.
-- APIM and services enforce object-level authorization, schema limits, quotas and rate limits. Administrative APIs require phishing-resistant MFA and stronger scopes.
+- Front Door/WAF and API Management enforce the primary production throttling and quota layer. Services still keep local defensive rate limits with non-reversible cart/capability partitioning so abuse controls remain safe during edge misconfiguration or internal traffic spikes. Administrative APIs require phishing-resistant MFA and stronger scopes.
 - TLS protects all transit; Azure-managed encryption protects storage; sensitive fields use application-level encryption where threat modelling requires it. Secrets and certificates live in Key Vault and rotate automatically.
 - Payment pages use provider-hosted fields/tokenization to reduce PCI scope. Logs and events exclude credentials, tokens, full payment data and unnecessary personal data.
 - Software supply-chain controls include locked dependencies, vulnerability scanning, signed immutable images, SBOMs, protected environments and auditable deployments.

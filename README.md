@@ -55,6 +55,14 @@ The included migration is applied automatically only when `ApplyMigrations=true`
 dotnet ef migrations add ChangeName --project src/Cart.Infrastructure --startup-project src/Cart.Api
 ```
 
+Database pool and timeout defaults are bounded and can be overridden without changing code:
+
+```bash
+export Database__MaxPoolSize=50
+export Database__ConnectionTimeoutSeconds=15
+export Database__CommandTimeoutSeconds=30
+```
+
 ## API example
 
 Create an anonymous cart:
@@ -111,6 +119,7 @@ Full-stack smoke test after `docker compose up --build`: create a cart in the UI
 - Idempotency keys are committed in the same database transaction as mutations, making network retries safe.
 - Mutation idempotency records include an operation and request fingerprint plus the original response, so identical retries replay exactly while key reuse for a different request is rejected. Records expire after 24 hours and are pruned opportunistically.
 - JSON logs, distributed traces, runtime/request metrics, rate limiting, readiness and liveness are wired at the API boundary.
+- Service rate limits return RFC 9457 `429` responses with `Retry-After`; production still relies on Front Door/API Management as the primary throttling layer.
 
 The capability token models anonymous carts. The standalone demo persists it in browser storage; a production web BFF should issue a `Secure`, `HttpOnly`, `SameSite` cookie under a strict CSP. Authenticated ownership uses OIDC/OAuth 2.1, subject-based authorization, a versioned merge command, token rotation, and an ownership audit record.
 
@@ -164,6 +173,8 @@ The deployed topology is Neon PostgreSQL, Render for the containerized API, and 
 5. The production smoke test creates a cart, adds an item, changes quantity, and verifies the updated subtotal without browser errors.
 
 The API normalizes Neon PostgreSQL URIs for Npgsql and binds to Render's injected `PORT`. For this single-instance demonstration `ApplyMigrations=true` is acceptable; a scaled production deployment must run migrations as a separate release job.
+
+When the API is deployed behind a reverse proxy, configure `ForwardedHeaders__KnownProxies` or `ForwardedHeaders__KnownNetworks` with trusted proxy addresses only. The app does not blindly trust forwarded client IP headers.
 
 ## Troubleshooting
 
