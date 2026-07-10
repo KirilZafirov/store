@@ -142,6 +142,18 @@ Use trunk-based development with protected `main`, short-lived `feature/*` branc
 
 Suggested reviewable commit sequence for this exercise is: scaffold and domain; persistence/API; tests; React client; observability/infrastructure; architecture and CI. The current workspace may be committed in those logical groups before submission.
 
+## Public deployment
+
+The reference hosted topology is Neon PostgreSQL, Render for the containerized API, and Vercel for the Vite client:
+
+1. Create a Neon project and copy its pooled `postgresql://` connection string.
+2. Create a Render Blueprint from this repository's `render.yaml`. Set `ConnectionStrings__CartDatabase` to the Neon string and temporarily set `AllowedOrigins` to the expected Vercel production origin.
+3. Import this repository into Vercel with `frontend` as the Root Directory. Set `VITE_API_URL` to the public Render service URL and deploy.
+4. Set Render's `AllowedOrigins` to the exact Vercel production URL and redeploy the API. Multiple comma-separated origins are supported when preview domains are deliberately allowed.
+5. Verify the UI cart flow plus the Render `/health/live`, `/health/ready`, `/swagger`, and `/metrics` endpoints.
+
+The API normalizes Neon PostgreSQL URIs for Npgsql, binds to Render's injected `PORT`, and intentionally runs without Redis when `ConnectionStrings__Redis` is empty. For this single-instance demonstration `ApplyMigrations=true` is acceptable; a scaled production deployment must run migrations as a separate release job.
+
 ## Troubleshooting
 
 - **Readiness is unhealthy:** wait for PostgreSQL, inspect `docker compose logs postgres api`, and verify the connection string.

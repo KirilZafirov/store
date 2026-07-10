@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: atlas-cart-api
+    runtime: docker
+    plan: free
+    repo: https://github.com/KirilZafirov/store
+    branch: main
+    dockerContext: .
+    dockerfilePath: ./src/Cart.Api/Dockerfile
+    healthCheckPath: /health/ready
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: ConnectionStrings__CartDatabase
+        sync: false
+      - key: ConnectionStrings__Redis
+        value: ""
+      - key: AllowedOrigins
+        sync: false
+      - key: ApplyMigrations
+        value: "true"
+      - key: OTEL_SERVICE_NAME
+        value: atlas-cart-api

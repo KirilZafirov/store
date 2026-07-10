@@ -10,8 +10,11 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        var databaseConnection = NormalizePostgresConnectionString(
+            configuration.GetConnectionString("CartDatabase")
+            ?? throw new InvalidOperationException("ConnectionStrings:CartDatabase is required."));
         services.AddDbContext<CartDbContext>(o =>
-            o.UseNpgsql(configuration.GetConnectionString("CartDatabase"), npgsql => npgsql.EnableRetryOnFailure()));
+            o.UseNpgsql(databaseConnection, npgsql => npgsql.EnableRetryOnFailure()));
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<ICartRepository, CartRepository>();
         services.AddScoped<IIdempotencyStore, IdempotencyStore>();
@@ -26,5 +29,18 @@ public static class DependencyInjection
                 EndPoints = { redisConnection }, AbortOnConnectFail = false, ConnectTimeout = 500
             })));
         return services;
+    }
+
+    private static string NormalizePostgresConnectionString(string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            || (uri.Scheme != "postgres" && uri.Scheme != "postgresql")) return value;
+
+        var userInfo = uri.UserInfo.Split(':', 2);
+        var username = Uri.UnescapeDataString(userInfo[0]);
+        var password = userInfo.Length == 2 ? Uri.UnescapeDataString(userInfo[1]) : string.Empty;
+        var database = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/'));
+
+        return $"Host={uri.Host};Port={uri.Port};Database={database};Username={username};Password={password};SSL Mode=Require";
     }
 }
