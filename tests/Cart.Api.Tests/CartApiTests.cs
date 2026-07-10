@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -71,6 +72,60 @@ public sealed class CartApiTests : IAsyncLifetime
     {
         Assert.Equal(HttpStatusCode.OK, (await Client.GetAsync("/health/live")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await Client.GetAsync("/health/ready")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Cart_creation_limit_returns_problem_details_and_retry_information()
+    {
+        await using var factory = FactoryWith(new Dictionary<string, string?>
+        {
+            ["RateLimits:CreateCart:PermitLimit"] = "1",
+            ["RateLimits:CreateCart:WindowSeconds"] = "60"
+        });
+        using var client = factory.CreateClient();
+
+        Assert.Equal(HttpStatusCode.Created, (await client.PostAsync("/api/v1/carts", null)).StatusCode);
+        var limited = await client.PostAsync("/api/v1/carts", null);
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.True(limited.Headers.RetryAfter?.Delta?.TotalSeconds >= 1 || limited.Headers.RetryAfter is not null);
+        await AssertProblem(limited, "rate_limited", HttpStatusCode.TooManyRequests);
+    }
+
+    [Fact]
+    public async Task Protected_cart_limit_is_partitioned_by_non_reversible_cart_capability_scope()
+    {
+        var firstScope = new DefaultHttpContext();
+        firstScope.Request.RouteValues["cartId"] = Guid.Parse("10000000-0000-0000-0000-000000000001");
+        firstScope.Request.Headers["X-Cart-Token"] = "secret-token";
+        var secondScope = new DefaultHttpContext();
+        secondScope.Request.RouteValues["cartId"] = Guid.Parse("10000000-0000-0000-0000-000000000002");
+        secondScope.Request.Headers["X-Cart-Token"] = "secret-token";
+
+        var partition = RateLimitingConfiguration.CapabilityCartScope(firstScope);
+        Assert.NotEqual(partition, RateLimitingConfiguration.CapabilityCartScope(secondScope));
+        Assert.DoesNotContain("secret-token", partition);
+        Assert.DoesNotContain("10000000", partition);
+
+        await using var factory = FactoryWith(new Dictionary<string, string?>
+        {
+            ["RateLimits:ProtectedCart:TokenLimit"] = "1",
+            ["RateLimits:ProtectedCart:TokensPerPeriod"] = "1",
+            ["RateLimits:ProtectedCart:ReplenishmentSeconds"] = "60"
+        });
+        using var client = factory.CreateClient();
+        var created = await CreateCart(client);
+
+        var first = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/carts/{created.Cart.Id}");
+        first.Headers.Add("X-Cart-Token", created.AccessToken);
+        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(first)).StatusCode);
+
+        var second = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/carts/{created.Cart.Id}");
+        second.Headers.Add("X-Cart-Token", created.AccessToken);
+        var limited = await client.SendAsync(second);
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        await AssertProblem(limited, "rate_limited", HttpStatusCode.TooManyRequests);
     }
 
     [Fact]
@@ -348,10 +403,26 @@ public sealed class CartApiTests : IAsyncLifetime
 
     private async Task<CreatedCart> CreateCart()
     {
-        var response = await Client.PostAsync("/api/v1/carts", null);
+        return await CreateCart(Client);
+    }
+
+    private static async Task<CreatedCart> CreateCart(HttpClient client)
+    {
+        var response = await client.PostAsync("/api/v1/carts", null);
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<CreatedCart>())!;
     }
+
+    private WebApplicationFactory<Program> FactoryWith(IReadOnlyDictionary<string, string?> overrides) =>
+        new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, config) =>
+        {
+            var values = new Dictionary<string, string?>(overrides)
+            {
+                ["ConnectionStrings:CartDatabase"] = _postgres.GetConnectionString(),
+                ["ApplyMigrations"] = "true"
+            };
+            config.AddInMemoryCollection(values);
+        }));
 
     private async Task<CartDto> AuthorizedGet(CreatedCart created)
     {

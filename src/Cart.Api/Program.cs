@@ -1,9 +1,9 @@
-using System.Threading.RateLimiting;
 using Cart.Api;
 using Cart.Application;
 using Cart.Domain;
 using Cart.Infrastructure;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
@@ -22,13 +22,7 @@ builder.Services.AddScoped<CartService>();
 var allowedOrigins = (builder.Configuration["AllowedOrigins"] ?? builder.Configuration["AllowedOrigin"] ?? "http://localhost:5173")
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod()));
-builder.Services.AddRateLimiter(o =>
-{
-    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    o.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
-        RateLimitPartition.GetTokenBucketLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ =>
-            new TokenBucketRateLimiterOptions { TokenLimit = 100, TokensPerPeriod = 100, ReplenishmentPeriod = TimeSpan.FromSeconds(10), QueueLimit = 0, AutoReplenishment = true }));
-});
+builder.Services.AddCartRateLimiting(builder.Configuration);
 builder.Services.AddHealthChecks().AddDbContextCheck<CartDbContext>(tags: ["ready"]);
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(r => r.AddService("cart-api"))
@@ -45,6 +39,7 @@ builder.Services.AddOpenTelemetry()
 
 var app = builder.Build();
 app.UseExceptionHandler();
+app.UseForwardedHeaders();
 app.UseCors();
 app.UseRateLimiter();
 app.UseSwagger();
@@ -56,10 +51,12 @@ app.MapPost("/api/v1/carts", async (CartService service, CancellationToken ct) =
 {
     var created = await service.Create(ct);
     return Results.Created($"/api/v1/carts/{created.Cart.Id}", created);
-}).Produces<CreatedCart>(201).ProducesProblem(429).ProducesProblem(500).WithTags("Carts");
+}).RequireRateLimiting(RateLimitingConfiguration.CreateCartPolicy)
+    .Produces<CreatedCart>(201).ProducesProblem(429).ProducesProblem(500).WithTags("Carts");
 
 app.MapGet("/api/v1/carts/{cartId:guid}", async (Guid cartId, HttpRequest request, CartService service, CancellationToken ct) =>
     Results.Ok(await service.Get(RequestValidation.RequiredId(cartId, "cartId"), Token(request), ct)))
+    .RequireRateLimiting(RateLimitingConfiguration.ProtectedCartPolicy)
     .Produces<CartDto>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(500).WithTags("Carts");
 
 app.MapPost("/api/v1/carts/{cartId:guid}/items", async (Guid cartId, AddItemRequest body, HttpRequest request, CartService service, CancellationToken ct) =>
@@ -68,24 +65,28 @@ app.MapPost("/api/v1/carts/{cartId:guid}/items", async (Guid cartId, AddItemRequ
         return Results.Ok(await service.Add(RequestValidation.RequiredId(cartId, "cartId"), Token(request),
             new AddItem(body.ProductId, body.Name, body.UnitPrice, body.Currency, body.Quantity), body.Version,
             IdempotencyKey(request), ct));
-    }).Produces<CartDto>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(500).WithTags("Cart items");
+    }).RequireRateLimiting(RateLimitingConfiguration.ProtectedCartPolicy)
+    .Produces<CartDto>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(429).ProducesProblem(500).WithTags("Cart items");
 
 app.MapPut("/api/v1/carts/{cartId:guid}/items/{productId:guid}", async (Guid cartId, Guid productId, SetQuantityRequest body, HttpRequest request, CartService service, CancellationToken ct) =>
     {
         body = RequestValidation.Validate(body);
         return Results.Ok(await service.SetQuantity(RequestValidation.RequiredId(cartId, "cartId"), Token(request),
             RequestValidation.RequiredId(productId, "productId"), body.Quantity, body.Version, IdempotencyKey(request), ct));
-    }).Produces<CartDto>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(500).WithTags("Cart items");
+    }).RequireRateLimiting(RateLimitingConfiguration.ProtectedCartPolicy)
+    .Produces<CartDto>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(429).ProducesProblem(500).WithTags("Cart items");
 
 app.MapDelete("/api/v1/carts/{cartId:guid}/items/{productId:guid}", async (Guid cartId, Guid productId, long version, HttpRequest request, CartService service, CancellationToken ct) =>
     Results.Ok(await service.Remove(RequestValidation.RequiredId(cartId, "cartId"), Token(request),
         RequestValidation.RequiredId(productId, "productId"), NonNegativeVersion(version), IdempotencyKey(request), ct)))
-    .Produces<CartDto>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(500).WithTags("Cart items");
+    .RequireRateLimiting(RateLimitingConfiguration.ProtectedCartPolicy)
+    .Produces<CartDto>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(429).ProducesProblem(500).WithTags("Cart items");
 
 app.MapDelete("/api/v1/carts/{cartId:guid}/items", async (Guid cartId, long version, HttpRequest request, CartService service, CancellationToken ct) =>
     Results.Ok(await service.Clear(RequestValidation.RequiredId(cartId, "cartId"), Token(request),
         NonNegativeVersion(version), IdempotencyKey(request), ct)))
-    .Produces<CartDto>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(500).WithTags("Cart items");
+    .RequireRateLimiting(RateLimitingConfiguration.ProtectedCartPolicy)
+    .Produces<CartDto>().ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(429).ProducesProblem(500).WithTags("Cart items");
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
