@@ -110,9 +110,12 @@ Full-stack smoke test after `docker compose up --build`: create a cart in the UI
 - A 256-bit opaque cart token is stored only as a SHA-256 hash and compared in constant time.
 - Expected versions prevent lost updates; conflicts are `409` RFC 9457 Problem Details responses.
 - Idempotency keys are committed in the same database transaction as mutations, making network retries safe.
+- Mutation idempotency records include an operation and request fingerprint plus the original response, so identical retries replay exactly while key reuse for a different request is rejected. Records expire after 24 hours and are pruned opportunistically.
 - JSON logs, distributed traces, runtime/request metrics, rate limiting, readiness and liveness are wired at the API boundary.
 
 The capability token models anonymous carts. The standalone demo persists it in browser storage; a production web BFF should issue a `Secure`, `HttpOnly`, `SameSite` cookie under a strict CSP. Authenticated ownership uses OIDC/OAuth 2.1, subject-based authorization, a versioned merge command, token rotation, and an ownership audit record.
+
+Cart creation intentionally does not persist a replay response: that response contains the one-time raw capability token, while the security model stores only its hash. A production BFF can provide creation idempotency inside an authenticated session without weakening that guarantee.
 
 ## Repository map
 

@@ -15,6 +15,7 @@ public sealed class ApiExceptionHandler(IProblemDetailsService problemDetails, I
             CartNotFoundException => (404, "Cart not found", "The requested cart does not exist.", "cart_not_found"),
             CartAccessDeniedException => (403, "Cart access denied", "The cart token is missing or invalid.", "cart_access_denied"),
             CartConcurrencyException => (409, "Cart was changed", "Reload the cart and retry with its latest version.", "concurrency_conflict"),
+            IdempotencyKeyReusedException => (409, "Idempotency key was reused", "Use a new Idempotency-Key for a different request.", "idempotency_key_reused"),
             DomainException d => (400, "Cart request rejected", d.Message, d.Code),
             FormatException => (403, "Cart access denied", "The cart token is missing or invalid.", "cart_access_denied"),
             _ => (500, "Unexpected error", "An unexpected error occurred.", "internal_error")
@@ -29,7 +30,9 @@ public sealed class ApiExceptionHandler(IProblemDetailsService problemDetails, I
             HttpContext = context,
             ProblemDetails = new ProblemDetails
             {
-                Status = status, Title = title, Detail = detail,
+                Status = status,
+                Title = title,
+                Detail = detail,
                 Type = $"https://example.com/problems/{code}",
                 Extensions = { ["code"] = code, ["traceId"] = context.TraceIdentifier }
             },

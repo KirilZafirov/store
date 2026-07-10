@@ -64,5 +64,9 @@ public sealed class ShoppingCart
         if (Currency is not null && Currency != currency)
             throw new DomainException("mixed_currency", "A cart cannot contain multiple currencies.");
     }
-    private void Touch(DateTimeOffset now) => UpdatedAt = now;
+    private void Touch(DateTimeOffset now)
+    {
+        UpdatedAt = now;
+        Version = checked(Version + 1);
+    }
 }
