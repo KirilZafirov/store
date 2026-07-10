@@ -56,6 +56,45 @@ public sealed class ShoppingCartTests
     }
 
     [Fact]
+    public void Mutations_update_version_timestamps_totals_and_normalize_snapshots()
+    {
+        var cart = NewCart();
+        var product = Guid.NewGuid();
+
+        cart.AddItem(product, " Keyboard ", new Money(10m, "eur"), 2, Now.AddMinutes(1));
+        var item = Assert.Single(cart.Items);
+        Assert.Equal("Keyboard", item.Name);
+        Assert.Equal("EUR", cart.Currency);
+        Assert.Equal(20m, cart.Subtotal);
+        Assert.Equal(1, cart.Version);
+        Assert.Equal(Now.AddMinutes(1), cart.UpdatedAt);
+
+        cart.SetQuantity(product, 3, Now.AddMinutes(2));
+        Assert.Equal(30m, cart.Subtotal);
+        Assert.Equal(2, cart.Version);
+        Assert.Equal(Now.AddMinutes(2), cart.UpdatedAt);
+
+        cart.RemoveItem(product, Now.AddMinutes(3));
+        Assert.Empty(cart.Items);
+        Assert.Null(cart.Currency);
+        Assert.Equal(0m, cart.Subtotal);
+        Assert.Equal(3, cart.Version);
+        Assert.Equal(Now.AddMinutes(3), cart.UpdatedAt);
+        Assert.Equal(Now, cart.CreatedAt);
+    }
+
+    [Fact]
+    public void Missing_items_are_rejected_for_quantity_change_and_removal()
+    {
+        var cart = NewCart();
+
+        Assert.Equal("item_not_found", Assert.Throws<DomainException>(() =>
+            cart.SetQuantity(Guid.NewGuid(), 2, Now)).Code);
+        Assert.Equal("item_not_found", Assert.Throws<DomainException>(() =>
+            cart.RemoveItem(Guid.NewGuid(), Now)).Code);
+    }
+
+    [Fact]
     public void Invalid_money_and_product_snapshots_are_rejected()
     {
         Assert.Equal("invalid_currency", Assert.Throws<DomainException>(() => new Money(1m, "E1R")).Code);
