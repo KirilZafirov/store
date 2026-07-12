@@ -132,11 +132,20 @@ npm run e2e
 CI also builds the API and web containers, scans images for high/critical vulnerabilities, generates SBOM artifacts, and runs:
 
 ```bash
+bash scripts/ci/check-doc-links.sh
 docker compose up --build -d
 bash scripts/ci/compose-smoke.sh
 ```
 
 Manual full-stack smoke test after `docker compose up --build`: create a cart in the UI, add the same product twice, change quantity, remove it, add another product, clear the cart, then confirm `/health/ready` and `/metrics` respond.
+
+Optional deployed smoke test for pre-interview confidence:
+
+```bash
+bash scripts/ci/deployed-smoke.sh
+```
+
+This checks the public Vercel storefront, Render API readiness/OpenAPI, and one live cart mutation against the deployed API. It is intentionally not required in CI because the public demo can be affected by Render cold starts, provider maintenance, or temporary internet failures outside the repository.
 
 ## Design highlights
 
@@ -202,6 +211,12 @@ The deployed topology is Neon PostgreSQL, Render for the containerized API, and 
 5. A production smoke test should create a cart, add an item, change quantity, and verify the updated subtotal without browser errors. The repository also includes local/CI browser and Compose smoke tests.
 
 The API normalizes Neon PostgreSQL URIs for Npgsql and binds to Render's injected `PORT`. For this single-instance demonstration `ApplyMigrations=true` is acceptable; a scaled production deployment must run migrations as a separate release job.
+
+To verify the current public deployment from a terminal:
+
+```bash
+bash scripts/ci/deployed-smoke.sh
+```
 
 When the API is deployed behind a reverse proxy, configure `ForwardedHeaders__KnownProxies` or `ForwardedHeaders__KnownNetworks` with trusted proxy addresses only. The app does not blindly trust forwarded client IP headers.
 

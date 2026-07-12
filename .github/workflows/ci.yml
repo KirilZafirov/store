@@ -10,6 +10,17 @@ permissions:
   contents: read
 
 jobs:
+  docs:
+    name: Documentation link check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check local documentation links
+        run: bash scripts/ci/check-doc-links.sh
+
   backend:
     name: Backend build, format, tests, audit
     runs-on: ubuntu-latest
